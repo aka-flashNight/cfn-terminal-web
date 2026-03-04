@@ -277,15 +277,9 @@ const handleSave = () => {
   isFirstLoad.value = false
 }
 
-// 检查是否是首次加载
+// 检查是否是首次加载（根据用户是否保存过配置）
 onMounted(() => {
-  const hasRequiredSettings =
-    playerStore.gender !== '未知性别' &&
-    playerStore.progress &&
-    playerStore.api_key &&
-    playerStore.model_name
-
-  isFirstLoad.value = !hasRequiredSettings
+  isFirstLoad.value = !playerStore.hasConfigured
 })
 </script>
 

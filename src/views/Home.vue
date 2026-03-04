@@ -305,10 +305,9 @@ const chatContainer = ref<HTMLDivElement>()
 // 记录头像加载失败的NPC（用于隐藏无头像的NPC）
 const npcsWithFailedAvatar = ref<Set<string>>(new Set())
 
-// 检查是否有核心设置
+// 检查是否已配置（用户是否保存过设置）
 const hasCoreSettings = computed(() => {
-  return playerStore.gender &&
-         playerStore.progress
+  return playerStore.hasConfigured
 })
 
 // 当前会话信息

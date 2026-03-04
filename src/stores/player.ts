@@ -85,6 +85,7 @@ export const usePlayerStore = defineStore('player', () => {
   const api_key = ref<string>('')
   const api_base = ref<string>('')
   const model_name = ref<string>('')
+  const hasConfigured = ref<boolean>(false) // 标记用户是否已保存过配置
 
   // Getters
   const playerIdentity = computed(() => {
@@ -110,13 +111,15 @@ export const usePlayerStore = defineStore('player', () => {
 
   // 持久化到 localStorage
   const saveToLocalStorage = () => {
+    hasConfigured.value = true
     const data = {
       gender: gender.value,
       progress: progress.value,
       bio: bio.value,
       api_key: api_key.value,
       api_base: api_base.value,
-      model_name: model_name.value
+      model_name: model_name.value,
+      hasConfigured: true
     }
     localStorage.setItem('player-settings', JSON.stringify(data))
   }
@@ -133,6 +136,7 @@ export const usePlayerStore = defineStore('player', () => {
         api_key.value = data.api_key || ''
         api_base.value = data.api_base || ''
         model_name.value = data.model_name || ''
+        hasConfigured.value = data.hasConfigured || false
       } catch (error) {
         console.error('Failed to load player settings from localStorage:', error)
       }
@@ -158,6 +162,7 @@ export const usePlayerStore = defineStore('player', () => {
     api_key,
     api_base,
     model_name,
+    hasConfigured,
 
     // Getters
     playerIdentity,
