@@ -155,7 +155,7 @@
             <!-- API Key -->
             <div>
               <label class="block text-sm font-medium mb-2 text-[#00ff41] font-mono">
-                > API Key 
+                > API Key
               </label>
               <input
                 v-model="formData.api_key"
@@ -163,6 +163,38 @@
                 placeholder="可不填，但不填时可能无法使用对话。也可后端.env文件配置"
                 class="w-full bg-[#111111] text-[#ffaa00] border border-[#333333] rounded px-3 py-2 focus:outline-none focus:border-[#ffaa00] focus:shadow-[0_0_10px_rgba(255,170,0,0.2)] transition-all placeholder-[#444444]"
               />
+
+              <!-- 是否存储 API Key -->
+              <div class="mt-3 space-y-2">
+                <label class="flex items-center cursor-pointer group">
+                  <input
+                    v-model="formData.remember_api_key"
+                    type="checkbox"
+                    class="mr-2 accent-[#00ff41] w-4 h-4"
+                  />
+                  <span class="text-gray-400 group-hover:text-[#00ff41] transition-colors text-sm">
+                    记住 API Key
+                  </span>
+                </label>
+
+                <!-- 公共电脑警告 -->
+                <div
+                  v-if="!formData.remember_api_key"
+                  class="bg-[#555555]/10 border border-[#555555]/30 rounded p-2"
+                >
+                  <p class="text-[#888888] text-xs font-mono">
+                    [安全提示] API Key 仅在本次会话有效，关闭浏览器后将被清除。
+                  </p>
+                </div>
+                <div
+                  v-else
+                  class="bg-[#555555]/10 border border-[#555555]/30 rounded p-2"
+                >
+                  <p class="text-[#888888] text-xs font-mono">
+                    [安全提示] API Key 将被保存到浏览器本地存储。在公共电脑上请勿勾选此项。
+                  </p>
+                </div>
+              </div>
             </div>
 
             <!-- 提示信息 -->
@@ -232,7 +264,8 @@ const formData = ref({
   bio: playerStore.bio,
   api_key: playerStore.api_key,
   api_base: playerStore.api_base,
-  model_name: playerStore.model_name
+  model_name: playerStore.model_name,
+  remember_api_key: playerStore.remember_api_key
 })
 
 const isFirstLoad = ref(false)
@@ -268,6 +301,7 @@ const handleSave = () => {
   playerStore.api_key = formData.value.api_key
   playerStore.api_base = formData.value.api_base
   playerStore.model_name = formData.value.model_name
+  playerStore.remember_api_key = formData.value.remember_api_key
 
   // 保存到 localStorage
   playerStore.saveToLocalStorage()

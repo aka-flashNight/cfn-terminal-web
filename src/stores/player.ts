@@ -86,6 +86,7 @@ export const usePlayerStore = defineStore('player', () => {
   const api_base = ref<string>('')
   const model_name = ref<string>('')
   const hasConfigured = ref<boolean>(false) // 标记用户是否已保存过配置
+  const remember_api_key = ref<boolean>(true) // 默认记住 API Key
 
   // Getters
   const playerIdentity = computed(() => {
@@ -109,23 +110,35 @@ export const usePlayerStore = defineStore('player', () => {
     }
   }
 
-  // 持久化到 localStorage
+  // 持久化到 localStorage 或 sessionStorage
   const saveToLocalStorage = () => {
     hasConfigured.value = true
-    const data = {
+
+    // 基础配置（总是保存到 localStorage）
+    const persistentData = {
       gender: gender.value,
       progress: progress.value,
       bio: bio.value,
-      api_key: api_key.value,
       api_base: api_base.value,
       model_name: model_name.value,
-      hasConfigured: true
+      hasConfigured: true,
+      remember_api_key: remember_api_key.value
     }
-    localStorage.setItem('player-settings', JSON.stringify(data))
+    localStorage.setItem('player-settings', JSON.stringify(persistentData))
+
+    // API Key 根据用户选择决定存储位置
+    if (remember_api_key.value) {
+      localStorage.setItem('player-api-key', api_key.value)
+      sessionStorage.removeItem('player-api-key')
+    } else {
+      sessionStorage.setItem('player-api-key', api_key.value)
+      localStorage.removeItem('player-api-key')
+    }
   }
 
-  // 从 localStorage 加载
+  // 从 localStorage 和 sessionStorage 加载
   const loadFromLocalStorage = () => {
+    // 加载基础配置
     const savedData = localStorage.getItem('player-settings')
     if (savedData) {
       try {
@@ -133,13 +146,25 @@ export const usePlayerStore = defineStore('player', () => {
         gender.value = data.gender || Gender.UNKNOWN
         progress.value = data.progress || Progress.WASTED_CITY
         bio.value = data.bio || ''
-        api_key.value = data.api_key || ''
         api_base.value = data.api_base || ''
         model_name.value = data.model_name || ''
         hasConfigured.value = data.hasConfigured || false
+        remember_api_key.value = data.remember_api_key !== false // 默认为 true
       } catch (error) {
         console.error('Failed to load player settings from localStorage:', error)
       }
+    }
+
+    // 加载 API Key（优先从 sessionStorage，其次是 localStorage）
+    const sessionApiKey = sessionStorage.getItem('player-api-key')
+    const localApiKey = localStorage.getItem('player-api-key')
+
+    if (sessionApiKey !== null) {
+      api_key.value = sessionApiKey
+      remember_api_key.value = false
+    } else if (localApiKey !== null) {
+      api_key.value = localApiKey
+      remember_api_key.value = true
     }
   }
 
@@ -163,6 +188,7 @@ export const usePlayerStore = defineStore('player', () => {
     api_base,
     model_name,
     hasConfigured,
+    remember_api_key,
 
     // Getters
     playerIdentity,
