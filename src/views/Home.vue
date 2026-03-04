@@ -364,15 +364,36 @@ const handleIllustrationError = () => {
   illustrationError.value = true
 }
 
-// 加载会话列表
-const loadSessions = async () => {
+// 加载会话列表（带重试机制）
+const loadSessions = async (isRetry: boolean = false) => {
   loadingSessions.value = true
   try {
     const data = await getSessions()
+
+    // 检查返回数据是否为空（sessions 和 npc_candidates 都为空）
+    const isEmpty = !data.sessions || data.sessions.length === 0
+
+    if (isEmpty && !isRetry) {
+      // 首次加载为空，5秒后重试
+      console.log('初始化返回为空，5秒后重试...')
+      setTimeout(() => {
+        loadSessions(true)
+      }, 5000)
+      return
+    }
+
     sessions.value = data.sessions
     npcCandidates.value = data.npc_candidates
   } catch (error) {
     console.error('Failed to load sessions:', error)
+
+    // 如果首次调用失败，5秒后重试一次
+    if (!isRetry) {
+      console.log('初始化失败，5秒后重试...')
+      setTimeout(() => {
+        loadSessions(true)
+      }, 5000)
+    }
   } finally {
     loadingSessions.value = false
   }
