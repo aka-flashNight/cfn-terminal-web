@@ -369,8 +369,10 @@ const loadSessions = async (isRetry: boolean = false) => {
   try {
     const data = await getSessions()
 
-    // 检查返回数据是否为空（sessions 和 npc_candidates 都为空）
-    const isEmpty = !data.sessions || data.sessions.length === 0
+    // 检查返回数据是否为空（sessions 和 npc_candidates 都为空才认为是后端未就绪）
+    const isSessionsEmpty = !data.sessions || data.sessions.length === 0
+    const isCandidatesEmpty = !data.npc_candidates || data.npc_candidates.length === 0
+    const isEmpty = isSessionsEmpty && isCandidatesEmpty
 
     if (isEmpty && !isRetry) {
       // 首次加载为空，5秒后重试
