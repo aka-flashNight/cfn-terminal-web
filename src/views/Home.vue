@@ -218,29 +218,37 @@
             可通讯人员
           </h2>
 
-          <div v-if="npcCandidates.length === 0" class="text-[#555555] text-sm italic">
-            暂无通讯人员
+          <!-- 头像验证加载中状态 -->
+          <div v-if="validatingNpcs" class="flex items-center gap-3 text-[#555555] text-sm font-mono py-8">
+            <div class="w-4 h-4 border-2 border-[#00ff41] border-t-transparent rounded-full animate-spin"></div>
+            <span>[SYSTEM] 正在扫描通讯录并建立安全连接...</span>
+          </div>
+
+          <!-- 验证完毕，但列表为空 -->
+          <div v-else-if="validNpcCandidates.length === 0" class="text-[#555555] text-sm italic font-mono py-8">
+            [WARNING] 暂无可用通讯人员
           </div>
 
           <!-- 头像大小改为 150px，每行显示更多 -->
           <div v-else class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-4">
+            <!-- 直接遍历 validNpcCandidates，不需要再过滤 -->
             <button
-              v-for="npc in npcCandidates.filter(n => !npcsWithFailedAvatar.has(n))"
+              v-for="npc in validNpcCandidates.filter(n => !npcsWithFailedAvatar.has(n))"
               :key="npc"
               @click="openNewSessionModal(npc)"
               class="group flex flex-col items-center transition-all"
             >
               <!-- NPC 头像 150x150 -->
-              <div class="w-[150px] h-[150px] rounded border border-[#333333] group-hover:border-[#00ff41] overflow-hidden bg-[#0a0a0a] transition-all hover:shadow-[0_0_15px_rgba(0,255,65,0.2)]">
+              <div class="w-[150px] h-[150px] rounded border border-[#333333] group-hover:border-[#00ff41] overflow-hidden bg-[#0a0a0a] transition-all hover:shadow-[0_0_15px_rgba(0,255,65,0.2)] relative">
                 <img
                   :src="getAvatarUrl(npc)"
                   :alt="npc"
-                  class="w-full h-full object-cover"
+                  class="w-full h-full object-cover relative z-10"
                   @error="(e) => handleAvatarError(e, npc)"
                 />
               </div>
               <!-- NPC 名字 -->
-              <p class="mt-2 text-center text-gray-400 group-hover:text-[#00ff41] font-mono text-sm truncate max-w-[150px] transition-colors">
+              <p class="mt-2 text-center text-gray-400 group-hover:text-[#00ff41] font-mono text-sm truncate w-full px-2 transition-colors">
                 {{ npc }}
               </p>
             </button>
@@ -304,6 +312,20 @@ const chatContainer = ref<HTMLDivElement>()
 
 // 记录头像加载失败的NPC（用于隐藏无头像的NPC）
 const npcsWithFailedAvatar = ref<Set<string>>(new Set())
+
+// 记录有效头像的NPC
+const validNpcCandidates = ref<string[]>([]) // 有效头像的NPC
+const validatingNpcs = ref(false) // 是否正在验证头像
+
+// --- 3. 新增预检查头像函数 ---
+const verifyAvatar = (npcName: string): Promise<boolean> => {
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => resolve(true)   // 加载成功
+    img.onerror = () => resolve(false) // 加载失败
+    img.src = getAvatarUrl(npcName)
+  })
+}
 
 // 检查是否已配置（用户是否保存过设置）
 const hasCoreSettings = computed(() => {
@@ -384,7 +406,20 @@ const loadSessions = async (isRetry: boolean = false) => {
     }
 
     sessions.value = data.sessions
-    npcCandidates.value = data.npc_candidates
+    npcCandidates.value = data.npc_candidates || []
+    
+    // --- 开始验证 NPC 头像 ---
+    validatingNpcs.value = true
+    // 并发验证所有NPC的头像
+    const validationPromises = npcCandidates.value.map(async (npc) => {
+      const isValid = await verifyAvatar(npc)
+      return { npc, isValid }
+    })
+    
+    const results = await Promise.all(validationPromises)
+    // 过滤出有头像的 NPC
+    validNpcCandidates.value = results.filter(r => r.isValid).map(r => r.npc)
+    
   } catch (error) {
     console.error('Failed to load sessions:', error)
 
@@ -397,6 +432,7 @@ const loadSessions = async (isRetry: boolean = false) => {
     }
   } finally {
     loadingSessions.value = false
+    validatingNpcs.value = false // 验证结束
   }
 }
 
@@ -461,7 +497,7 @@ const createNewSession = async (title: string) => {
     await selectSession(newSession.session_id)
   } catch (error) {
     console.error('Failed to create session:', error)
-    alert('创建会话失败，请检查网络连接')
+    alert('创建会话失败，请检查网络连接或关闭浏览器插件')
   } finally {
     creatingSession.value = false
   }
