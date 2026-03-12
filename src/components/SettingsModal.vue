@@ -147,7 +147,7 @@
               <input
                 v-model="formData.api_base"
                 type="text"
-                placeholder="也可后端.env 文件配置"
+                placeholder="请填写API Base，或在后端.env 文件配置，"
                 class="w-full bg-[#111111] text-[#888888] border border-[#333333] rounded px-3 py-2 focus:outline-none focus:border-[#00ff41] focus:shadow-[0_0_10px_rgba(0,255,65,0.2)] transition-all placeholder-[#444444]"
               />
 
@@ -184,7 +184,7 @@
               <input
                 v-model="formData.api_key"
                 type="password"
-                placeholder="可不填，但不填时可能无法使用对话。也可后端.env 文件配置"
+                placeholder="请填写API Key，或在后端.env 文件配置，否则无法使用对话。"
                 class="w-full bg-[#111111] text-[#ffaa00] border border-[#333333] rounded px-3 py-2 focus:outline-none focus:border-[#ffaa00] focus:shadow-[0_0_10px_rgba(255,170,0,0.2)] transition-all placeholder-[#444444]"
               />
 
@@ -219,6 +219,23 @@
                   </p>
                 </div>
               </div>
+            </div>
+
+
+            <!-- 代理服务器 -->
+            <div>
+              <label class="block text-sm font-medium mb-2 text-[#00ff41] font-mono">
+                > 代理服务器地址
+              </label>
+              <input
+                v-model="formData.proxy_url"
+                type="text"
+                placeholder="可选，如：http://127.0.0.1:10809"
+                class="w-full bg-[#111111] text-[#00ffff] border border-[#333333] rounded px-3 py-2 focus:outline-none focus:border-[#00ffff] focus:shadow-[0_0_10px_rgba(0,255,255,0.2)] transition-all placeholder-[#444444]"
+              />
+              <p class="text-[#555555] text-xs font-mono mt-2">
+                [提示] 如需要使用代理访问 AI 服务，可在此填写代理地址；留空则不使用代理或使用系统全局代理
+              </p>
             </div>
 
             <!-- 提示信息 -->
@@ -289,6 +306,7 @@ const formData = ref({
   api_key: playerStore.api_key,
   api_base: playerStore.api_base,
   model_name: playerStore.model_name,
+  proxy_url: playerStore.proxy_url,
   remember_api_key: playerStore.remember_api_key
 })
 
@@ -351,6 +369,7 @@ const handleSave = () => {
   playerStore.api_key = formData.value.api_key
   playerStore.api_base = formData.value.api_base
   playerStore.model_name = formData.value.model_name
+  playerStore.proxy_url = formData.value.proxy_url
   playerStore.remember_api_key = formData.value.remember_api_key
 
   // 保存到 localStorage

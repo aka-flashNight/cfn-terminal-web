@@ -47,6 +47,7 @@ export interface NPCChatRequest {
   api_key?: string | null
   api_base?: string | null
   model_name?: string | null
+  proxy_url?: string | null
 }
 
 // 发送消息响应
@@ -59,9 +60,14 @@ export interface NPCChatResponse {
   emotion: string
 }
 
-// 获取会话列表和 NPC 候选列表
-export function getSessions(): Promise<SessionsResponse> {
-  return request.get('/api/game/sessions').then(res => res.data)
+// 初始化配置请求
+export interface InitConfigRequest {
+  proxy_url?: string | null
+}
+
+// 获取会话列表和 NPC 候选列表（可传入初始化配置）
+export function getSessions(config?: InitConfigRequest): Promise<SessionsResponse> {
+  return request.get('/api/game/sessions', { params: config }).then(res => res.data)
 }
 
 // 创建新会话

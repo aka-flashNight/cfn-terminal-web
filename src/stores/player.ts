@@ -201,6 +201,7 @@ export const usePlayerStore = defineStore('player', () => {
   const api_key = ref<string>('')
   const api_base = ref<string>('')
   const model_name = ref<string>('')
+  const proxy_url = ref<string>('') // 代理服务器地址
   const hasConfigured = ref<boolean>(false) // 标记用户是否已保存过配置
   const remember_api_key = ref<boolean>(true) // 默认记住 API Key
 
@@ -237,6 +238,7 @@ export const usePlayerStore = defineStore('player', () => {
       bio: bio.value,
       api_base: api_base.value,
       model_name: model_name.value,
+      proxy_url: proxy_url.value,
       hasConfigured: true,
       remember_api_key: remember_api_key.value
     }
@@ -264,6 +266,7 @@ export const usePlayerStore = defineStore('player', () => {
         bio.value = data.bio || ''
         api_base.value = data.api_base || ''
         model_name.value = data.model_name || ''
+        proxy_url.value = data.proxy_url || ''
         hasConfigured.value = data.hasConfigured || false
         remember_api_key.value = data.remember_api_key !== false // 默认为 true
       } catch (error) {
@@ -303,6 +306,7 @@ export const usePlayerStore = defineStore('player', () => {
     api_key,
     api_base,
     model_name,
+    proxy_url,
     hasConfigured,
     remember_api_key,
 

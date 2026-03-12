@@ -385,7 +385,10 @@ const handleIllustrationError = () => {
 const loadSessions = async (isRetry: boolean = false) => {
   loadingSessions.value = true
   try {
-    const data = await getSessions()
+    // 传入代理配置，让后端可以初始化代理设置
+    const data = await getSessions({
+      proxy_url: playerStore.proxy_url || null
+    })
 
     // 检查返回数据是否为空（sessions 和 npc_candidates 都为空才认为是后端未就绪）
     const isSessionsEmpty = !data.sessions || data.sessions.length === 0
@@ -528,7 +531,8 @@ const sendChatMessage = async () => {
       player_identity: playerStore.playerIdentity || null,
       api_key: playerStore.api_key || null,
       api_base: playerStore.api_base || null,
-      model_name: playerStore.model_name || null
+      model_name: playerStore.model_name || null,
+      proxy_url: playerStore.proxy_url || null
     })
 
     // 添加 NPC 回复
