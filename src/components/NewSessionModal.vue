@@ -104,9 +104,17 @@ const avatarUrl = ref('')
 watch(() => props.npcName, (name) => {
   if (name) {
     avatarUrl.value = getAvatarUrl(name)
-    title.value = `和 ${name} 的对话`
   }
 }, { immediate: true })
+
+// 弹窗打开时初始化标题
+watch(() => props.modelValue, (visible) => {
+  if (visible && props.npcName) {
+    title.value = `和 ${props.npcName} 的对话`
+  } else if (!visible) {
+    title.value = ''
+  }
+})
 
 // 处理图片加载失败
 const handleImageError = () => {
@@ -118,13 +126,6 @@ const handleConfirm = () => {
   if (!title.value.trim() || props.loading) return
   emit('confirm', title.value.trim())
 }
-
-// 关闭时重置
-watch(() => props.modelValue, (visible) => {
-  if (!visible) {
-    title.value = ''
-  }
-})
 </script>
 
 <style scoped>
