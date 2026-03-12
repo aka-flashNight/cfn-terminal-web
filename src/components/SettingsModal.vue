@@ -3,7 +3,7 @@
     <div
       v-if="modelValue"
       class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md"
-      
+
     >
     <!-- @click.self="$emit('update:modelValue', false)" -->
       <!-- 扫描线背景效果 -->
@@ -107,7 +107,7 @@
                 v-model="formData.bio"
                 type="text"
                 maxlength="20"
-                placeholder="可不填，上限20字"
+                placeholder="可不填，上限 20 字"
                 class="w-full bg-[#111111] text-[#00ffff] border border-[#333333] rounded px-3 py-2 focus:outline-none focus:border-[#00ffff] focus:shadow-[0_0_10px_rgba(0,255,255,0.2)] transition-all placeholder-[#444444]"
               />
               <div class="text-right text-xs text-[#555555] mt-1">
@@ -127,13 +127,13 @@
             <!-- 模型名称 -->
             <div>
               <label class="block text-sm font-medium mb-2 text-[#00ff41] font-mono">
-                > 模型名称 
+                > 模型名称
                 <span class="text-xs text-[#555555] ml-2">(填写后时自动推导 API Base)</span>
               </label>
               <input
                 v-model="formData.model_name"
                 type="text"
-                placeholder="例如: gemini-2.5-flash, kimi-k2.5"
+                placeholder="例如：gemini-2.5-flash, kimi-k2.5"
                 @blur="handleModelNameBlur"
                 class="w-full bg-[#111111] text-[#00ff41] border border-[#333333] rounded px-3 py-2 focus:outline-none focus:border-[#00ff41] focus:shadow-[0_0_10px_rgba(0,255,65,0.2)] transition-all placeholder-[#444444]"
               />
@@ -142,14 +142,38 @@
             <!-- API Base -->
             <div>
               <label class="block text-sm font-medium mb-2 text-[#00ff41] font-mono">
-                > API Base(兼容OpenAI格式)
+                > API Base(兼容 OpenAI 格式)
               </label>
               <input
                 v-model="formData.api_base"
                 type="text"
-                placeholder="也可后端.env文件配置"
+                placeholder="也可后端.env 文件配置"
                 class="w-full bg-[#111111] text-[#888888] border border-[#333333] rounded px-3 py-2 focus:outline-none focus:border-[#00ff41] focus:shadow-[0_0_10px_rgba(0,255,65,0.2)] transition-all placeholder-[#444444]"
               />
+
+              <!-- 常见平台快速选择（附属选项） -->
+              <div class="mt-3 space-y-2">
+                <label class="block text-xs text-[#888888] font-mono">
+                  快速选择：
+                </label>
+                <select
+                  v-model="selectedPlatform"
+                  @change="handlePlatformChange"
+                  class="w-full bg-[#111111] text-[#00ffff] border border-[#333333] rounded px-3 py-2 text-sm focus:outline-none focus:border-[#00ffff] focus:shadow-[0_0_10px_rgba(0,255,255,0.2)] transition-all"
+                >
+                  <option value="">-- 请选择服务平台 --</option>
+                  <option
+                    v-for="platform in commonPlatforms"
+                    :key="platform.value"
+                    :value="platform.value"
+                  >
+                    {{ platform.label }}
+                  </option>
+                </select>
+                <p class="text-[#555555] text-xs font-mono">
+                  [提示] 选择平台后将自动切换 API Base，也可手动修改
+                </p>
+              </div>
             </div>
 
             <!-- API Key -->
@@ -160,7 +184,7 @@
               <input
                 v-model="formData.api_key"
                 type="password"
-                placeholder="可不填，但不填时可能无法使用对话。也可后端.env文件配置"
+                placeholder="可不填，但不填时可能无法使用对话。也可后端.env 文件配置"
                 class="w-full bg-[#111111] text-[#ffaa00] border border-[#333333] rounded px-3 py-2 focus:outline-none focus:border-[#ffaa00] focus:shadow-[0_0_10px_rgba(255,170,0,0.2)] transition-all placeholder-[#444444]"
               />
 
@@ -203,7 +227,7 @@
               class="bg-[#ff0040]/10 border border-[#ff0040]/50 rounded p-3"
             >
               <p class="text-[#ff0040] text-sm font-mono">
-                [WARNING] 您需要填写必要信息才能正常使用对话功能，或在后端.env文件进行api相关配置
+                [WARNING] 您需要填写必要信息才能正常使用对话功能，或在后端.env 文件进行 api 相关配置
               </p>
             </div>
 
@@ -243,7 +267,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { usePlayerStore, Gender, Progress, inferApiBase, PROGRESS_TO_IDENTITY } from '../stores/player'
+import { usePlayerStore, Gender, Progress, inferApiBase, PROGRESS_TO_IDENTITY, COMMON_PLATFORMS, getPlatformByValue, inferPlatformFromApiBase } from '../stores/player'
 
 type GenderType = typeof Gender[keyof typeof Gender]
 type ProgressType = typeof Progress[keyof typeof Progress]
@@ -270,12 +294,38 @@ const formData = ref({
 
 const isFirstLoad = ref(false)
 
+// 常见平台列表（排除默认的 empty 选项）
+const commonPlatforms = Object.values(COMMON_PLATFORMS)
+
+// 选中的平台
+const selectedPlatform = ref('')
+
+// 根据当前 API Base 初始化平台选择
+const initPlatformSelection = () => {
+  if (formData.value.api_base) {
+    const platformValue = inferPlatformFromApiBase(formData.value.api_base)
+    if (platformValue) {
+      selectedPlatform.value = platformValue
+    }
+  }
+}
+
+// 处理平台变化
+const handlePlatformChange = () => {
+  if (selectedPlatform.value) {
+    const platform = getPlatformByValue(selectedPlatform.value)
+    if (platform) {
+      formData.value.api_base = platform.baseUrl
+    }
+  }
+}
+
 const previewIdentity = computed(() => {
   const identity = PROGRESS_TO_IDENTITY[formData.value.progress as ProgressType]
   const genderText = formData.value.gender === Gender.UNKNOWN ? '' : formData.value.gender
   const bioText = formData.value.bio ? `，${formData.value.bio}` : ''
 
-  return `一名A兵团${identity}${genderText}佣兵${bioText}。`
+  return `一名 A 兵团${identity}${genderText}佣兵${bioText}。`
 })
 
 const handleModelNameBlur = () => {
@@ -314,6 +364,7 @@ const handleSave = () => {
 // 检查是否是首次加载（根据用户是否保存过配置）
 onMounted(() => {
   isFirstLoad.value = !playerStore.hasConfigured
+  initPlatformSelection()
 })
 </script>
 

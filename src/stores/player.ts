@@ -28,6 +28,109 @@ export const PROGRESS_TO_IDENTITY: Record<ProgressType, string> = {
   [Progress.SNOW_MOUNTAIN]: '元老级'
 }
 
+// 常见平台 API Base 配置映射（包含中转站、云平台、官方等）
+// 用于用户手动选择平台时快速切换 API Base
+export const COMMON_PLATFORMS = {
+  // 中转站 / 聚合平台
+  MODELSCOPE: {
+    label: 'ModelScope (魔搭社区)',
+    value: 'modelscope',
+    baseUrl: 'https://api-inference.modelscope.cn/v1',
+    isOfficial: false
+  },
+  SILICONFLOW: {
+    label: 'SiliconFlow (硅基流动)',
+    value: 'siliconflow',
+    baseUrl: 'https://api.siliconflow.cn/v1',
+    isOfficial: false
+  },
+  // 官方平台（当 inferApiBase 未覆盖时使用）
+  OPENAI: {
+    label: 'OpenAI (官方)',
+    value: 'openai',
+    baseUrl: 'https://api.openai.com/v1',
+    isOfficial: true
+  },
+  GEMINI: {
+    label: 'Gemini (Google)',
+    value: 'gemini',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    isOfficial: true
+  },
+  DEEPSEEK: {
+    label: 'DeepSeek',
+    value: 'deepseek',
+    baseUrl: 'https://api.deepseek.com/v1',
+    isOfficial: true
+  },
+  MOONSHOT: {
+    label: 'Moonshot (Kimi)',
+    value: 'moonshot',
+    baseUrl: 'https://api.moonshot.cn/v1',
+    isOfficial: true
+  },
+  QWEN: {
+    label: 'Qwen (通义千问)',
+    value: 'qwen',
+    baseUrl: 'https://api.qwen.com/v1',
+    isOfficial: true
+  },
+  ZHIPU: {
+    label: 'Zhipu (智谱 AI)',
+    value: 'zhipu',
+    baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    isOfficial: true
+  },
+  BAICHUAN: {
+    label: 'Baichuan (百川智能)',
+    value: 'baichuan',
+    baseUrl: 'https://api.baichuan-ai.com/v1/baichuan',
+    isOfficial: true
+  },
+  MINIMAX: {
+    label: 'MiniMax',
+    value: 'minimax',
+    baseUrl: 'https://api.minimax.chat/v1',
+    isOfficial: true
+  },
+  STEPFUN: {
+    label: 'StepFun (阶跃星辰)',
+    value: 'stepfun',
+    baseUrl: 'https://api.stepfun.com/v1',
+    isOfficial: true
+  },
+  VOLCENGINE: {
+    label: 'Volcengine (火山引擎)',
+    value: 'volcengine',
+    baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+    isOfficial: true
+  },
+  MISTRAL: {
+    label: 'Mistral AI',
+    value: 'mistral',
+    baseUrl: 'https://api.mistral.ai/v1',
+    isOfficial: true
+  },
+  GROQ: {
+    label: 'Groq',
+    value: 'groq',
+    baseUrl: 'https://api.groq.com/openai',
+    isOfficial: true
+  },
+  YI: {
+    label: 'Yi (零一万物)',
+    value: 'yi',
+    baseUrl: 'https://api.lingyiwanwu.com/v1',
+    isOfficial: true
+  }
+} as const
+
+export type CommonPlatformValue = typeof COMMON_PLATFORMS[keyof typeof COMMON_PLATFORMS]['value']
+
+export function getPlatformByValue(value: CommonPlatformValue | string) {
+  return Object.values(COMMON_PLATFORMS).find(platform => platform.value === value)
+}
+
 export function inferApiBase(modelName: string): string | undefined {
   if (!modelName) return undefined;
 
@@ -62,15 +165,28 @@ export function inferApiBase(modelName: string): string | undefined {
     { match: 'mixtral', base: 'https://api.mistral.ai/v1' },
     { match: 'groq', base: 'https://api.groq.com/openai' },
     { match: 'silicon', base: 'https://api.siliconflow.cn/v1' },
-    { match: 'baichuan', base: 'https://api.baichuan-ai.com/v1/baichuan' }, // Check
+    { match: 'baichuan', base: 'https://api.baichuan-ai.com/v1/baichuan' },
     { match: 'abab', base: 'https://api.abab.com/v1' },
-    { match: 'minimax', base: 'https://api.minimax.chat/v1' } // check
-    // { match: 'openrouter', base: 'https://openrouter.ai/api/v1' }, // OpenRouter is not directly compatible
-    // { match: 'together', base: 'https://api.together.xyz/v1' }, // Together is not directly compatible
+    { match: 'minimax', base: 'https://api.minimax.chat/v1' }
   ];
   for (const rule of rules) {
     if (lowerModel.includes(rule.match)) {
       return rule.base;
+    }
+  }
+
+  return undefined;
+}
+
+// 根据 API Base URL 反向推断平台
+export function inferPlatformFromApiBase(apiBase: string): CommonPlatformValue | undefined {
+  if (!apiBase) return undefined;
+
+  const normalizedBase = apiBase.toLowerCase().trim();
+
+  for (const platform of Object.values(COMMON_PLATFORMS)) {
+    if (normalizedBase === platform.baseUrl.toLowerCase()) {
+      return platform.value as CommonPlatformValue;
     }
   }
 
@@ -94,7 +210,7 @@ export const usePlayerStore = defineStore('player', () => {
     const genderText = gender.value === Gender.UNKNOWN ? '' : gender.value
     const bioText = bio.value ? `，${bio.value}` : ''
 
-    return `一名A兵团${identity}${genderText}佣兵${bioText}。`
+    return `一名 A 兵团${identity}${genderText}佣兵${bioText}。`
   })
 
   // Actions
