@@ -275,6 +275,7 @@ import { ref, computed, onMounted, nextTick } from 'vue'
 import { usePlayerStore } from '../stores/player'
 import SettingsModal from '../components/SettingsModal.vue'
 import NewSessionModal from '../components/NewSessionModal.vue'
+import { getAvatarUrl, getIllustrationUrl } from '../api/assets'
 import {
   getSessions,
   createSession,
@@ -348,13 +349,8 @@ const currentSessionNpc = computed(() => {
 // 当前立绘 URL
 const currentIllustrationUrl = computed(() => {
   if (!currentSessionNpc.value || illustrationError.value) return ''
-  return `http://127.0.0.1:8000/api/assets/illustration/${encodeURIComponent(currentSessionNpc.value)}/${encodeURIComponent(currentEmotion.value)}`
+  return getIllustrationUrl(currentSessionNpc.value, currentEmotion.value)
 })
-
-// 获取头像 URL
-const getAvatarUrl = (npcName: string) => {
-  return `http://127.0.0.1:8000/api/assets/avatar/${encodeURIComponent(npcName)}`
-}
 
 // 格式化时间
 const formatTime = (timestamp: number) => {

@@ -1,7 +1,9 @@
 import axios, { type AxiosInstance } from 'axios'
 
+export const BASE_URL = 'http://127.0.0.1:7077'
+
 const request: AxiosInstance = axios.create({
-  baseURL: 'http://127.0.0.1:8000',
+  baseURL: BASE_URL,
   timeout: 300000,
   headers: {
     'Content-Type': 'application/json'

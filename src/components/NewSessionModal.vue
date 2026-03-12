@@ -84,6 +84,7 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import { getAvatarUrl } from '../api/assets'
 
 const props = defineProps<{
   modelValue: boolean
@@ -102,7 +103,7 @@ const avatarUrl = ref('')
 // 计算头像 URL
 watch(() => props.npcName, (name) => {
   if (name) {
-    avatarUrl.value = `http://127.0.0.1:8000/api/assets/avatar/${encodeURIComponent(name)}`
+    avatarUrl.value = getAvatarUrl(name)
     title.value = `和 ${name} 的对话`
   }
 }, { immediate: true })
