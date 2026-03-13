@@ -117,11 +117,80 @@
 
         <!-- 聊天内容区域 -->
         <div class="flex-1 relative min-h-0">
+          <!-- 立绘布局模式切换按钮：放在聊天区域右上角，仅在有立绘时显示 -->
+          <div
+            v-if="currentIllustrationUrl && !illustrationError"
+            class="absolute top-3 right-4 z-20 flex items-center gap-1 text-xs"
+          >
+            <!-- 全局居中：左按钮，抽象的三叉平衡图形 -->
+            <button
+              class="w-7 h-7 flex items-center justify-center transition-colors"
+              :class="illustrationMode === 'global-center'
+                ? 'text-[#00ff41]'
+                : 'text-[#666666] hover:text-[#00ff41]'"
+              @click="setIllustrationMode('global-center')"
+            >
+              <svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <g transform="translate(24,0) scale(-1,1)">
+                  <path d="M4 7h6l3 5-3 5H4l3-5z" />
+                  <path d="M15 5l5 7-5 7" />
+                </g>
+              </svg>
+            </button>
+            <!-- 右侧展开：中按钮，向右展开的蜂巢箭头感 -->
+            <button
+              class="w-7 h-7 flex items-center justify-center transition-colors"
+              :class="illustrationMode === 'right-docked'
+                ? 'text-[#00ff41]'
+                : 'text-[#666666] hover:text-[#00ff41]'"
+              @click="setIllustrationMode('right-docked')"
+            >
+              <svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+                <path d="M4 12h16" />
+                <path d="M12 4v16" />
+                <path d="M8 6l4-3 4 3" />
+                <path d="M8 18l4 3 4-3" />
+              </svg>
+            </button>
+            <!-- 右侧 300 区域居中：右按钮，右侧窗口中段高亮的感觉 -->
+            <button
+              class="w-7 h-7 flex items-center justify-center transition-colors"
+              :class="illustrationMode === 'right-center'
+                ? 'text-[#00ff41]'
+                : 'text-[#666666] hover:text-[#00ff41]'"
+              @click="setIllustrationMode('right-center')"
+            >
+              <svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 7h6l3 5-3 5H4l3-5z" />
+                <path d="M15 5l5 7-5 7" />
+              </svg>
+            </button>
+          </div>
+
+          <!-- NPC 立绘：作为整个聊天区域的背景，支持三种模式：全局居中 / 右侧对齐 / 右侧300区域居中 -->
+          <div
+            v-if="currentIllustrationUrl && !illustrationError"
+            class="absolute inset-0 pointer-events-none z-0 overflow-hidden"
+          >
+            <img
+              :src="currentIllustrationUrl"
+              :alt="currentSessionNpc"
+              :class="illustrationImgClass"
+              :style="illustrationImgStyle"
+              @error="handleIllustrationError"
+            />
+            <!-- 从立绘左侧边界向左，逐渐加深遮罩；右侧区域在右侧模式下为 300px 不遮挡 -->
+            <div
+              class="absolute inset-y-0 left-0 pointer-events-none"
+              :style="illustrationOverlayStyle"
+            ></div>
+          </div>
+
           <!-- 可滚动的消息区域 -->
           <div
             ref="chatContainer"
-            class="absolute inset-0 overflow-y-auto p-4 space-y-4"
-            :class="{ 'pr-[316px]': currentIllustrationUrl && !illustrationError }"
+            class="absolute inset-0 overflow-y-auto p-4 space-y-4 z-10"
+            :class="{ 'pr-[316px]': currentIllustrationUrl && !illustrationError && illustrationMode !== 'global-center' }"
           >
             <!-- 历史消息 -->
             <div
@@ -131,7 +200,7 @@
               :class="msg.role === 'user' ? 'justify-start' : 'justify-end'"
             >
               <!-- 玩家消息（左侧） -->
-              <div v-if="msg.role === 'user'" class="flex items-start gap-3 max-w-[70%]">
+              <div v-if="msg.role === 'user'" class="flex items-start gap-4 max-w-[70%]">
                 <div class="w-10 h-10 rounded-full bg-[#00ff41]/20 border border-[#00ff41]/50 flex items-center justify-center flex-shrink-0">
                   <span class="text-[#00ff41] text-xs">你</span>
                 </div>
@@ -142,18 +211,41 @@
               </div>
 
               <!-- NPC消息（右侧） -->
-              <div v-else class="flex items-start gap-3 max-w-[70%]">
-                <div class="bg-[#111111] border border-[#00ffff]/30 rounded-lg p-3">
-                  <p class="text-[#00ffff] text-sm whitespace-pre-wrap">{{ msg.content }}</p>
-                  <p class="text-[#555555] text-xs mt-1">{{ formatTime(msg.timestamp) }}</p>
+              <div v-else class="flex items-start gap-4 max-w-[70%]">
+                <!-- NPC 对话气泡的大范围暗色晕光：右侧（靠近立绘一侧）更黑，向左逐渐过渡到透明，整体比头像晕光更淡一些 -->
+                <div class="relative">
+                  <div
+                    class="pointer-events-none absolute inset-0 -m-6 rounded-2xl opacity-80 blur-[14px]"
+                    style="background: radial-gradient(circle at 100% 50%, rgba(0,0,0,0.7) 0%, rgba(5,5,5,0.58) 34%, rgba(5,5,5,0.3) 70%, transparent 100%);"
+                  ></div>
+                  <div class="relative bg-[#0b0b0b] border border-[#00ffff]/40 rounded-lg p-3">
+                    <p class="text-[#00ffff] text-sm whitespace-pre-wrap">{{ msg.content }}</p>
+                    <p class="text-[#555555] text-xs mt-1">{{ formatTime(msg.timestamp) }}</p>
+                  </div>
                 </div>
-                <div class="w-14 h-14 rounded-full border-2 border-[#00ffff]/30 overflow-hidden flex-shrink-0 bg-[#0a0a0a]">
-                  <img
-                    :src="getAvatarUrl(currentSessionNpc)"
-                    :alt="currentSessionNpc"
-                    class="w-full h-full object-cover"
-                    @error="handleAvatarError"
-                  />
+                <!-- NPC 头像：增加内圈霓虹光环 + 更大范围暗色晕光，和立绘之间做多层过渡 -->
+                <div class="relative flex-shrink-0">
+                  <!-- 外圈大范围暗色晕光（覆盖头像周围更大区域，越近越暗、越远越透明） -->
+                  <div
+                    class="absolute inset-0 -m-8 rounded-full opacity-90 blur-[14px] pointer-events-none"
+                    style="background: radial-gradient(circle, rgba(0,0,0,0.82) 0%, rgba(5,5,5,0.72) 35%, rgba(5,5,5,0.36) 70%, transparent 100%);"
+                  ></div>
+                  <!-- 外层发光环（比头像略大，做柔和过渡） -->
+                  <div
+                    class="absolute inset-0 -m-1 rounded-full opacity-70 blur-[3px] pointer-events-none"
+                    style="background: radial-gradient(circle, rgba(0,255,255,0.9) 0%, rgba(0,255,255,0.35) 35%, transparent 70%);"
+                  ></div>
+                  <!-- 实际头像容器 -->
+                  <div
+                    class="relative w-14 h-14 rounded-full border-2 border-[#00ffff]/60 overflow-hidden bg-[#020202]/95 shadow-[0_0_12px_rgba(0,255,255,0.45)]"
+                  >
+                    <img
+                      :src="getAvatarUrl(currentSessionNpc)"
+                      :alt="currentSessionNpc"
+                      class="w-full h-full object-cover"
+                      @error="handleAvatarError"
+                    />
+                  </div>
                 </div>
               </div>
             </div>
@@ -166,20 +258,6 @@
                 </p>
               </div>
             </div>
-          </div>
-
-          <!-- NPC 立绘（固定在聊天内容区域右下角，宽度300px，最大高度600px） -->
-          <div
-            v-if="currentIllustrationUrl && !illustrationError"
-            class="absolute bottom-0 right-0 w-[300px] h-[600px] pointer-events-none overflow-hidden flex items-end justify-center z-10"
-          >
-            <img
-              :src="currentIllustrationUrl"
-              :alt="currentSessionNpc"
-              class="w-auto max-h-[600px] max-w-none opacity-90"
-              style="object-position: center bottom;"
-              @error="handleIllustrationError"
-            />
           </div>
         </div>
 
@@ -367,6 +445,8 @@ const illustrationError = ref(false)
 const showFavorChange = ref(false)
 const favorChangeValue = ref(0)
 const chatContainer = ref<HTMLDivElement>()
+// 立绘布局模式：'global-center' 全局居中；'right-docked' 右侧对齐展开；'right-center' 右侧 300px 区域内居中（默认）
+const illustrationMode = ref<'global-center' | 'right-docked' | 'right-center'>('right-center')
 
 // 记录头像加载失败的NPC（用于隐藏无头像的NPC）
 const npcsWithFailedAvatar = ref<Set<string>>(new Set())
@@ -435,6 +515,50 @@ const currentIllustrationUrl = computed(() => {
   return getIllustrationUrl(currentSessionNpc.value, currentEmotion.value)
 })
 
+// 立绘遮罩样式：根据布局模式决定是否为右侧预留 300px 不遮挡区域
+const illustrationOverlayStyle = computed(() => {
+  if (!currentIllustrationUrl.value || illustrationError.value) {
+    return {}
+  }
+  const right = illustrationMode.value === 'global-center' ? '0px' : '300px'
+  return {
+    right,
+    background: 'linear-gradient(to left, transparent 0%, rgba(5,5,5,0.72) 35%, rgba(5,5,5,0.94) 100%)'
+  }
+})
+
+// 立绘图片在不同模式下的定位和 object-position
+const illustrationImgClass = computed(() => {
+  if (!currentIllustrationUrl.value || illustrationError.value) return ''
+  if (illustrationMode.value === 'global-center') {
+    // 整个聊天区域居中
+    return 'absolute bottom-0 left-1/2 -translate-x-1/2 w-auto max-h-[600px] max-w-none opacity-90'
+  }
+  if (illustrationMode.value === 'right-center') {
+    // 右侧 300px 区域内居中：水平位置由 style.left 控制，这里只负责底对齐和横向居中变换
+    return 'absolute bottom-0 w-auto max-h-[600px] max-w-none opacity-90 -translate-x-1/2'
+  }
+  // 右侧展开：沿右下角停靠，高度优先
+  return 'absolute bottom-0 right-0 w-auto max-h-[600px] max-w-none opacity-90'
+})
+
+const illustrationImgStyle = computed(() => {
+  if (!currentIllustrationUrl.value || illustrationError.value) return {}
+  if (illustrationMode.value === 'right-docked') {
+    // 展开：展示立绘右侧
+    return { objectPosition: 'right bottom' }
+  }
+  if (illustrationMode.value === 'right-center') {
+    // 右侧 300px 区域内居中：将立绘中心对齐到距离右侧 150px 的位置
+    return {
+      objectPosition: 'center bottom',
+      left: 'calc(100% - 150px)'
+    }
+  }
+  // 全局居中：展示立绘中心
+  return { objectPosition: 'center bottom' }
+})
+
 // 格式化时间
 const formatTime = (timestamp: number) => {
   const date = new Date(timestamp * 1000)
@@ -467,6 +591,11 @@ const handleIllustrationError = () => {
   if (currentSessionNpc.value && currentEmotion.value) {
     markIllustrationInvalid(currentSessionNpc.value, currentEmotion.value)
   }
+}
+
+// 切换立绘布局模式
+const setIllustrationMode = (mode: 'global-center' | 'right-docked' | 'right-center') => {
+  illustrationMode.value = mode
 }
 
 // 加载会话列表（带重试机制）
