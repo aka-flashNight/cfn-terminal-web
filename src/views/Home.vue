@@ -176,8 +176,8 @@
             <img
               :src="currentIllustrationUrl"
               :alt="currentSessionNpc"
-              class="h-auto max-h-[600px] opacity-90"
-              style="min-width: 100%; object-fit: cover; object-position: center bottom;"
+              class="w-auto max-h-[600px] max-w-none opacity-90"
+              style="object-position: center bottom;"
               @error="handleIllustrationError"
             />
           </div>
@@ -214,13 +214,13 @@
         </div>
 
         <!-- 佣兵身份预览 -->
-        <div v-if="hasCoreSettings" class="mb-8 p-4 bg-[#111111] border border-[#00ffff]/30 rounded max-w-md">
+        <div v-if="hasCoreSettings" class="mb-8 p-4 bg-[#111111] border border-[#00ffff]/30 rounded max-w-xl">
           <p class="text-[#00ffff] text-xs mb-1 font-mono uppercase">当前身份</p>
           <p class="text-[#00ff41] font-mono">{{ playerStore.playerIdentity }}</p>
         </div>
 
         <!-- 未配置提示 -->
-        <div v-else class="mb-8 p-4 bg-[#111111] border border-[#ff0040]/50 rounded max-w-md">
+        <div v-else class="mb-8 p-4 bg-[#111111] border border-[#ff0040]/50 rounded max-w-xl">
           <p class="text-[#ff0040] text-sm font-mono">[WARNING] 请先完成佣兵档案配置</p>
           <button
             @click="showSettings = true"
