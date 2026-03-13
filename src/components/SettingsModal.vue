@@ -128,7 +128,7 @@
             <div>
               <label class="block text-sm font-medium mb-2 text-[#00ff41] font-mono">
                 > 模型名称
-                <span class="text-xs text-[#555555] ml-2">(填写后时自动推导 API Base)</span>
+                <span class="text-xs text-[#555555] ml-2">(填写后，若API Base为空，将自动推导官方 API Base。非官网模型请手动修改)</span>
               </label>
               <input
                 v-model="formData.model_name"

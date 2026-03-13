@@ -60,6 +60,24 @@ export interface NPCChatResponse {
   emotion: string
 }
 
+// NPC好感度信息响应
+export interface NPCFavorabilityResponse {
+  npc_name: string
+  favorability: number
+  relationship_level: string
+}
+
+// 更新会话标题请求
+export interface UpdateSessionTitleRequest {
+  title: string
+}
+
+// 更新会话标题响应
+export interface UpdateSessionTitleResponse {
+  session_id: string
+  title: string
+}
+
 // 初始化配置请求
 export interface InitConfigRequest {
   proxy_url?: string | null
@@ -83,4 +101,52 @@ export function getSessionHistory(sessionId: string, limit: number = 50): Promis
 // 发送消息
 export function sendMessage(data: NPCChatRequest): Promise<NPCChatResponse> {
   return request.post('/api/game/ask', data).then(res => res.data)
+}
+
+/**
+ * 获取NPC好感度信息
+ * 根据NPC名称获取当前好感度、关系等级和情绪状态
+ *
+ * 后端接口说明：
+ * - 方法: GET
+ * - 路径: /api/game/npc/:npc_name/favorability
+ * - 参数: npc_name (路径参数) - NPC名称
+ * - 返回: NPCFavorabilityResponse
+ * - 错误: 404 - NPC不存在
+ */
+export function getNPCFavorability(npcName: string): Promise<NPCFavorabilityResponse> {
+  return request.get(`/api/game/npc/${encodeURIComponent(npcName)}/favorability`).then(res => res.data)
+}
+
+/**
+ * 更新会话标题（重命名）
+ *
+ * 后端接口说明：
+ * - 方法: PUT
+ * - 路径: /api/game/sessions/:session_id/title
+ * - 参数:
+ *   - session_id (路径参数) - 会话ID
+ *   - title (请求体) - 新的会话标题
+ * - 返回: UpdateSessionTitleResponse
+ * - 错误: 404 - 会话不存在, 400 - 标题为空或过长
+ */
+export function updateSessionTitle(
+  sessionId: string,
+  data: UpdateSessionTitleRequest
+): Promise<UpdateSessionTitleResponse> {
+  return request.put(`/api/game/sessions/${sessionId}/title`, data).then(res => res.data)
+}
+
+/**
+ * 删除会话
+ *
+ * 后端接口说明：
+ * - 方法: DELETE
+ * - 路径: /api/game/sessions/:session_id
+ * - 参数: session_id (路径参数) - 会话ID
+ * - 返回: 204 No Content (删除成功)
+ * - 错误: 404 - 会话不存在
+ */
+export function deleteSession(sessionId: string): Promise<void> {
+  return request.delete(`/api/game/sessions/${sessionId}`).then(res => res.data)
 }

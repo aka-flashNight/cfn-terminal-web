@@ -22,18 +22,37 @@
         </div>
         <!-- 会话列表 -->
         <div v-else class="space-y-1">
-          <button
+          <div
             v-for="session in sessions"
             :key="session.session_id"
-            @click="selectSession(session.session_id)"
-            class="w-full text-left p-3 rounded border transition-all"
-            :class="currentSessionId === session.session_id
-              ? 'bg-[#00ff41]/10 border-[#00ff41]/50 text-[#00ff41]'
-              : 'bg-[#1a1a1a] border-transparent text-gray-400 hover:bg-[#252525] hover:text-[#00ff41]'"
+            class="group relative"
           >
-            <div class="text-sm font-medium truncate">{{ session.title }}</div>
-            <div class="text-xs text-[#555555] mt-1">{{ session.npc_name }}</div>
-          </button>
+            <button
+              @click="selectSession(session.session_id)"
+              class="w-full text-left p-3 rounded border transition-all pr-8"
+              :class="currentSessionId === session.session_id
+                ? 'bg-[#00ff41]/10 border-[#00ff41]/50 text-[#00ff41]'
+                : 'bg-[#1a1a1a] border-transparent text-gray-400 hover:bg-[#252525] hover:text-[#00ff41]'"
+            >
+              <div class="text-sm font-medium truncate">{{ session.title }}</div>
+              <div class="text-xs text-[#555555] mt-1">{{ session.npc_name }}</div>
+            </button>
+            <!-- 操作菜单按钮 (悬停显示) -->
+            <div
+              class="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              <button
+                @click.stop="openSessionMenu(session, $event)"
+                class="p-1.5 text-[#444444] hover:text-[#00ff41] hover:bg-[#00ff41]/10 transition-all"
+              >
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                  <circle cx="12" cy="6" r="1.5"/>
+                  <circle cx="12" cy="12" r="1.5"/>
+                  <circle cx="12" cy="18" r="1.5"/>
+                </svg>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -267,6 +286,149 @@
       :loading="creatingSession"
       @confirm="createNewSession"
     />
+
+    <!-- 会话操作菜单弹窗 -->
+    <Teleport to="body">
+      <div
+        v-if="showSessionMenu"
+        class="fixed inset-0 z-50"
+        @click="closeSessionMenu"
+      >
+        <div
+          class="absolute bg-[#0a0a0a] border border-[#444444] py-0 min-w-[140px] shadow-[0_0_20px_rgba(0,0,0,0.8)]"
+          :style="{ left: menuPosition.x + 'px', top: menuPosition.y + 'px' }"
+          @click.stop
+        >
+          <button
+            @click="openRenameModal"
+            class="w-full px-3 py-2.5 text-left text-sm text-gray-400 hover:bg-[#00ff41]/10 hover:text-[#00ff41] transition-all duration-150 flex items-center gap-3 group"
+          >
+            <svg class="w-4 h-4 text-[#555555] group-hover:text-[#00ff41] transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+            </svg>
+            <span class="font-mono text-xs tracking-wide">重命名</span>
+          </button>
+          <div class="h-px bg-[#222222] mx-3"></div>
+          <button
+            @click="openDeleteConfirm"
+            class="w-full px-3 py-2.5 text-left text-sm text-gray-400 hover:bg-[#ff0040]/10 hover:text-[#ff0040] transition-all duration-150 flex items-center gap-3 group"
+          >
+            <svg class="w-4 h-4 text-[#555555] group-hover:text-[#ff0040] transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+            </svg>
+            <span class="font-mono text-xs tracking-wide">删除</span>
+          </button>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- 重命名会话弹窗 -->
+    <Teleport to="body">
+      <div
+        v-if="showRenameModal"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+      >
+        <div class="bg-[#0a0a0a] border border-[#333333] w-[420px] shadow-[0_0_40px_rgba(0,255,65,0.1)]">
+          <!-- 标题栏 -->
+          <div class="flex items-center justify-between px-4 py-3 border-b border-[#222222] bg-[#111111]">
+            <div class="flex items-center gap-3">
+              <svg class="w-4 h-4 text-[#00ff41]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+              </svg>
+              <h3 class="text-[#00ff41] font-mono text-sm tracking-wider uppercase">修改会话标识</h3>
+            </div>
+            <button @click="closeRenameModal" class="text-[#444444] hover:text-[#00ff41] transition-colors">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+              </svg>
+            </button>
+          </div>
+          <!-- 内容区 -->
+          <div class="p-5">
+            <div class="mb-4">
+              <label class="block text-[10px] text-[#666666] font-mono uppercase tracking-wider mb-2">新标识符</label>
+              <input
+                v-model="renameTitle"
+                maxlength="35" 
+                type="text"
+                placeholder="输入新标题..."
+                class="w-full bg-[#111111] text-[#00ff41] border border-[#333333] px-3 py-2.5 font-mono text-sm focus:outline-none focus:border-[#00ff41] focus:shadow-[0_0_10px_rgba(0,255,65,0.2)] transition-all placeholder-[#333333]"
+                @keyup.enter="confirmRename"
+              />
+            </div>
+            <div class="flex justify-end gap-3">
+              <button
+                @click="closeRenameModal"
+                class="px-4 py-2 text-xs text-[#666666] hover:text-[#aaaaaa] transition-colors font-mono uppercase tracking-wider border border-transparent hover:border-[#333333]"
+              >
+                [ 取消 ]
+              </button>
+              <button
+                @click="confirmRename"
+                :disabled="!renameTitle.trim() || renamingSession"
+                class="px-4 py-2 bg-[#00ff41]/10 border border-[#00ff41]/50 text-[#00ff41] hover:bg-[#00ff41]/20 hover:border-[#00ff41] hover:shadow-[0_0_15px_rgba(0,255,65,0.3)] transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none text-xs font-mono uppercase tracking-wider"
+              >
+                {{ renamingSession ? '[ 处理中... ]' : '[ 确认 ]' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- 删除确认弹窗 -->
+    <Teleport to="body">
+      <div
+        v-if="showDeleteConfirm"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+        @click.self="closeDeleteConfirm"
+      >
+        <div class="bg-[#0a0a0a] border border-[#ff0040]/50 w-[420px] shadow-[0_0_40px_rgba(255,0,64,0.15)]">
+          <!-- 标题栏 -->
+          <div class="flex items-center justify-between px-4 py-3 border-b border-[#ff0040]/20 bg-[#ff0040]/5">
+            <div class="flex items-center gap-3">
+              <svg class="w-4 h-4 text-[#ff0040]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+              </svg>
+              <h3 class="text-[#ff0040] font-mono text-sm tracking-wider uppercase">危险操作警告</h3>
+            </div>
+            <button @click="closeDeleteConfirm" class="text-[#444444] hover:text-[#ff0040] transition-colors">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+              </svg>
+            </button>
+          </div>
+          <!-- 内容区 -->
+          <div class="p-5">
+            <div class="mb-5">
+              <div class="text-[10px] text-[#666666] font-mono uppercase tracking-wider mb-3">目标会话</div>
+              <div class="bg-[#111111] border border-[#222222] px-3 py-2.5 font-mono text-sm text-[#00ff41]">
+                {{ selectedSession?.title }}
+              </div>
+            </div>
+            <div class="flex items-start gap-2 text-[#666666] text-xs font-mono mb-5">
+              <span class="text-[#ff0040]">[WARNING]</span>
+              <span>此操作将永久删除该会话及其所有通信记录，数据不可恢复。</span>
+            </div>
+            <div class="flex justify-end gap-3">
+              <button
+                @click="closeDeleteConfirm"
+                class="px-4 py-2 text-xs text-[#666666] hover:text-[#aaaaaa] transition-colors font-mono uppercase tracking-wider border border-transparent hover:border-[#333333]"
+              >
+                [ 取消 ]
+              </button>
+              <button
+                @click="confirmDelete"
+                :disabled="deletingSession"
+                class="px-4 py-2 bg-[#ff0040]/10 border border-[#ff0040]/50 text-[#ff0040] hover:bg-[#ff0040]/20 hover:border-[#ff0040] hover:shadow-[0_0_15px_rgba(255,0,64,0.3)] transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none text-xs font-mono uppercase tracking-wider"
+              >
+                {{ deletingSession ? '[ 处理中... ]' : '[ 确认删除 ]' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -281,9 +443,13 @@ import {
   createSession,
   getSessionHistory,
   sendMessage,
+  getNPCFavorability,
+  updateSessionTitle,
+  deleteSession,
   type Session,
   type ChatMessage,
-  type NPCChatResponse
+  type NPCChatResponse,
+  type NPCFavorabilityResponse
 } from '../api/game'
 
 const playerStore = usePlayerStore()
@@ -317,6 +483,20 @@ const npcsWithFailedAvatar = ref<Set<string>>(new Set())
 // 记录有效头像的NPC
 const validNpcCandidates = ref<string[]>([]) // 有效头像的NPC
 const validatingNpcs = ref(false) // 是否正在验证头像
+
+// 会话操作菜单相关状态
+const showSessionMenu = ref(false)
+const selectedSession = ref<Session | null>(null)
+const menuPosition = ref({ x: 0, y: 0 })
+
+// 重命名相关状态
+const showRenameModal = ref(false)
+const renameTitle = ref('')
+const renamingSession = ref(false)
+
+// 删除确认相关状态
+const showDeleteConfirm = ref(false)
+const deletingSession = ref(false)
 
 // --- 3. 新增预检查头像函数 ---
 const verifyAvatar = (npcName: string): Promise<boolean> => {
@@ -446,18 +626,32 @@ const selectSession = async (sessionId: string) => {
   illustrationError.value = false
   isFirstMessage.value = true
 
-  // 加载历史记录
+  // 获取当前会话信息
+  const session = sessions.value.find(s => s.session_id === sessionId)
+
+  // 加载历史记录和NPC好感度（并行）
   try {
-    const history = await getSessionHistory(sessionId)
+    const [history, favorabilityData] = await Promise.all([
+      getSessionHistory(sessionId),
+      session ? getNPCFavorability(session.npc_name) : Promise.resolve(null)
+    ])
+
     chatMessages.value = history.messages
     if (history.messages.length > 0) {
       isFirstMessage.value = false
     }
+
+    // 设置好感度信息
+    if (favorabilityData) {
+      favorability.value = favorabilityData.favorability
+      relationshipLevel.value = favorabilityData.relationship_level
+    }
+
     // 滚动到底部
     await nextTick()
     scrollToBottom()
   } catch (error) {
-    console.error('Failed to load history:', error)
+    console.error('Failed to load session data:', error)
   }
 }
 
@@ -585,6 +779,103 @@ const sendChatMessage = async () => {
 const scrollToBottom = () => {
   if (chatContainer.value) {
     chatContainer.value.scrollTop = chatContainer.value.scrollHeight
+  }
+}
+
+// 打开会话操作菜单
+const openSessionMenu = (session: Session, event: MouseEvent) => {
+  selectedSession.value = session
+  menuPosition.value = { x: event.clientX, y: event.clientY }
+  showSessionMenu.value = true
+}
+
+// 关闭会话操作菜单
+const closeSessionMenu = () => {
+  showSessionMenu.value = false
+}
+
+// 打开重命名弹窗
+const openRenameModal = () => {
+  if (selectedSession.value) {
+    renameTitle.value = selectedSession.value.title
+    showRenameModal.value = true
+    closeSessionMenu()
+  }
+}
+
+// 关闭重命名弹窗
+const closeRenameModal = () => {
+  showRenameModal.value = false
+  renameTitle.value = ''
+}
+
+// 确认重命名
+const confirmRename = async () => {
+  if (!selectedSession.value || !renameTitle.value.trim()) return
+
+  renamingSession.value = true
+  try {
+    const response = await updateSessionTitle(selectedSession.value.session_id, {
+      title: renameTitle.value.trim()
+    })
+
+    // 更新本地会话列表中的标题
+    const session = sessions.value.find(s => s.session_id === response.session_id)
+    if (session) {
+      session.title = response.title
+    }
+
+    // 如果当前正在查看这个会话，同步更新显示
+    if (currentSessionId.value === response.session_id) {
+      // currentSession 是 computed，会自动更新
+    }
+
+    closeRenameModal()
+  } catch (error) {
+    console.error('Failed to rename session:', error)
+    alert('重命名失败，请稍后重试')
+  } finally {
+    renamingSession.value = false
+  }
+}
+
+// 打开删除确认弹窗
+const openDeleteConfirm = () => {
+  showDeleteConfirm.value = true
+  closeSessionMenu()
+}
+
+// 关闭删除确认弹窗
+const closeDeleteConfirm = () => {
+  showDeleteConfirm.value = false
+}
+
+// 确认删除
+const confirmDelete = async () => {
+  if (!selectedSession.value) return
+
+  deletingSession.value = true
+  try {
+    await deleteSession(selectedSession.value.session_id)
+
+    // 从本地列表中移除
+    const index = sessions.value.findIndex(s => s.session_id === selectedSession.value!.session_id)
+    if (index > -1) {
+      sessions.value.splice(index, 1)
+    }
+
+    // 如果删除的是当前正在查看的会话，退出该会话
+    if (currentSessionId.value === selectedSession.value.session_id) {
+      exitSession()
+    }
+
+    closeDeleteConfirm()
+    selectedSession.value = null
+  } catch (error) {
+    console.error('Failed to delete session:', error)
+    alert('删除失败，请稍后重试')
+  } finally {
+    deletingSession.value = false
   }
 }
 
