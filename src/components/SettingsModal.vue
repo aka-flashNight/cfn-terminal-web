@@ -133,7 +133,7 @@
               <input
                 v-model="formData.model_name"
                 type="text"
-                placeholder="例如：gemini-2.5-flash, kimi-k2.5"
+                placeholder="例如：gemini-3.1-flash-lite-preview, kimi-k2.5"
                 @blur="handleModelNameBlur"
                 class="w-full bg-[#111111] text-[#00ff41] border border-[#333333] rounded px-3 py-2 focus:outline-none focus:border-[#00ff41] focus:shadow-[0_0_10px_rgba(0,255,65,0.2)] transition-all placeholder-[#444444]"
               />

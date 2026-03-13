@@ -448,8 +448,7 @@ import {
   deleteSession,
   type Session,
   type ChatMessage,
-  type NPCChatResponse,
-  type NPCFavorabilityResponse
+  type NPCChatResponse
 } from '../api/game'
 
 const playerStore = usePlayerStore()
