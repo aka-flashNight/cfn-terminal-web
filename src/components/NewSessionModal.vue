@@ -84,7 +84,7 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { getAvatarUrl } from '../api/assets'
+import { getAvatarUrl, markAvatarInvalid } from '../api/assets'
 
 const props = defineProps<{
   modelValue: boolean
@@ -118,6 +118,8 @@ watch(() => props.modelValue, (visible) => {
 
 // 处理图片加载失败
 const handleImageError = () => {
+  // 标记该NPC头像无效，避免后续重复请求
+  markAvatarInvalid(props.npcName)
   // 使用默认占位图
   avatarUrl.value = ''
 }

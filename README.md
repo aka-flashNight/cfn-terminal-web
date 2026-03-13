@@ -50,6 +50,8 @@ npm run build
 
 ## 后端对接
 
+本项目前端默认配套的后端实现为 **CrazyFlashNight** 项目（闪客快打7重置版服务端与工具集），代码仓库地址见：[FlashNightModReborn/CrazyFlashNight](https://github.com/FlashNightModReborn/CrazyFlashNight)。
+
 本项目需要配合 RAG 检索后端使用，后端需提供以下 API：
 
 - `GET /api/game/sessions` - 获取会话列表和 NPC 候选

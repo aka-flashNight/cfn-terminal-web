@@ -130,13 +130,23 @@
                 > 模型名称
                 <span class="text-xs text-[#555555] ml-2">(填写后，若API Base为空，将自动推导官方 API Base。非官网模型请手动修改)</span>
               </label>
-              <input
-                v-model="formData.model_name"
-                type="text"
-                placeholder="例如：gemini-3.1-flash-lite-preview, kimi-k2.5"
-                @blur="handleModelNameBlur"
-                class="w-full bg-[#111111] text-[#00ff41] border border-[#333333] rounded px-3 py-2 focus:outline-none focus:border-[#00ff41] focus:shadow-[0_0_10px_rgba(0,255,65,0.2)] transition-all placeholder-[#444444]"
-              />
+              <div class="relative">
+                <input
+                  v-model="formData.model_name"
+                  type="text"
+                  placeholder="例如：gemini-3.1-flash-lite-preview, kimi-k2.5"
+                  @blur="handleModelNameBlur"
+                  class="w-full bg-[#111111] text-[#00ff41] border border-[#333333] rounded px-3 py-2 pr-10 focus:outline-none focus:border-[#00ff41] focus:shadow-[0_0_10px_rgba(0,255,65,0.2)] transition-all placeholder-[#444444]"
+                />
+                <button
+                  v-if="formData.model_name"
+                  type="button"
+                  @click="formData.model_name = ''"
+                  class="absolute right-3 top-1/2 -translate-y-1/2 text-[#555555] hover:text-[#ff0040] text-lg font-bold transition-colors"
+                >
+                  ×
+                </button>
+              </div>
             </div>
 
             <!-- API Base -->
@@ -144,12 +154,22 @@
               <label class="block text-sm font-medium mb-2 text-[#00ff41] font-mono">
                 > API Base(兼容 OpenAI 格式)
               </label>
-              <input
-                v-model="formData.api_base"
-                type="text"
-                placeholder="请填写API Base，或在后端.env 文件配置，"
-                class="w-full bg-[#111111] text-[#888888] border border-[#333333] rounded px-3 py-2 focus:outline-none focus:border-[#00ff41] focus:shadow-[0_0_10px_rgba(0,255,65,0.2)] transition-all placeholder-[#444444]"
-              />
+              <div class="relative">
+                <input
+                  v-model="formData.api_base"
+                  type="text"
+                  placeholder="请填写API Base，或在后端.env 文件配置，"
+                  class="w-full bg-[#111111] text-[#888888] border border-[#333333] rounded px-3 py-2 pr-10 focus:outline-none focus:border-[#00ff41] focus:shadow-[0_0_10px_rgba(0,255,65,0.2)] transition-all placeholder-[#444444]"
+                />
+                <button
+                  v-if="formData.api_base"
+                  type="button"
+                  @click="formData.api_base = ''"
+                  class="absolute right-3 top-1/2 -translate-y-1/2 text-[#555555] hover:text-[#ff0040] text-lg font-bold transition-colors"
+                >
+                  ×
+                </button>
+              </div>
 
               <!-- 常见平台快速选择（附属选项） -->
               <div class="mt-3 space-y-2">
@@ -181,12 +201,22 @@
               <label class="block text-sm font-medium mb-2 text-[#00ff41] font-mono">
                 > API Key
               </label>
-              <input
-                v-model="formData.api_key"
-                type="password"
-                placeholder="请填写API Key，或在后端.env 文件配置，否则无法使用对话。"
-                class="w-full bg-[#111111] text-[#ffaa00] border border-[#333333] rounded px-3 py-2 focus:outline-none focus:border-[#ffaa00] focus:shadow-[0_0_10px_rgba(255,170,0,0.2)] transition-all placeholder-[#444444]"
-              />
+              <div class="relative">
+                <input
+                  v-model="formData.api_key"
+                  type="password"
+                  placeholder="请填写API Key，或在后端.env 文件配置，否则无法使用对话。"
+                  class="w-full bg-[#111111] text-[#ffaa00] border border-[#333333] rounded px-3 py-2 pr-10 focus:outline-none focus:border-[#ffaa00] focus:shadow-[0_0_10px_rgba(255,170,0,0.2)] transition-all placeholder-[#444444]"
+                />
+                <button
+                  v-if="formData.api_key"
+                  type="button"
+                  @click="formData.api_key = ''"
+                  class="absolute right-3 top-1/2 -translate-y-1/2 text-[#555555] hover:text-[#ff0040] text-lg font-bold transition-colors"
+                >
+                  ×
+                </button>
+              </div>
 
               <!-- 是否存储 API Key -->
               <div class="mt-3 space-y-2">

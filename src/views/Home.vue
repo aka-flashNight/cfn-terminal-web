@@ -43,7 +43,7 @@
             >
               <button
                 @click.stop="openSessionMenu(session, $event)"
-                class="p-1.5 text-[#444444] hover:text-[#00ff41] hover:bg-[#00ff41]/10 transition-all"
+                class="p-1.5 text-[#444444] hover:text-[#00ff41] hover:bg-[#00ff41]/10 rounded transition-all duration-150 ease-out"
               >
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
                   <circle cx="12" cy="6" r="1.5"/>
@@ -287,148 +287,30 @@
       @confirm="createNewSession"
     />
 
-    <!-- 会话操作菜单弹窗 -->
-    <Teleport to="body">
-      <div
-        v-if="showSessionMenu"
-        class="fixed inset-0 z-50"
-        @click="closeSessionMenu"
-      >
-        <div
-          class="absolute bg-[#0a0a0a] border border-[#444444] py-0 min-w-[140px] shadow-[0_0_20px_rgba(0,0,0,0.8)]"
-          :style="{ left: menuPosition.x + 'px', top: menuPosition.y + 'px' }"
-          @click.stop
-        >
-          <button
-            @click="openRenameModal"
-            class="w-full px-3 py-2.5 text-left text-sm text-gray-400 hover:bg-[#00ff41]/10 hover:text-[#00ff41] transition-all duration-150 flex items-center gap-3 group"
-          >
-            <svg class="w-4 h-4 text-[#555555] group-hover:text-[#00ff41] transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
-            </svg>
-            <span class="font-mono text-xs tracking-wide">重命名</span>
-          </button>
-          <div class="h-px bg-[#222222] mx-3"></div>
-          <button
-            @click="openDeleteConfirm"
-            class="w-full px-3 py-2.5 text-left text-sm text-gray-400 hover:bg-[#ff0040]/10 hover:text-[#ff0040] transition-all duration-150 flex items-center gap-3 group"
-          >
-            <svg class="w-4 h-4 text-[#555555] group-hover:text-[#ff0040] transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-            </svg>
-            <span class="font-mono text-xs tracking-wide">删除</span>
-          </button>
-        </div>
-      </div>
-    </Teleport>
+    <!-- 会话操作菜单弹窗（独立组件） -->
+    <SessionActionMenu
+      v-model="showSessionMenu"
+      :session="selectedSession"
+      :position="menuPosition"
+      @rename="openRenameModal"
+      @delete="openDeleteConfirm"
+    />
 
-    <!-- 重命名会话弹窗 -->
-    <Teleport to="body">
-      <div
-        v-if="showRenameModal"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
-      >
-        <div class="bg-[#0a0a0a] border border-[#333333] w-[420px] shadow-[0_0_40px_rgba(0,255,65,0.1)]">
-          <!-- 标题栏 -->
-          <div class="flex items-center justify-between px-4 py-3 border-b border-[#222222] bg-[#111111]">
-            <div class="flex items-center gap-3">
-              <svg class="w-4 h-4 text-[#00ff41]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
-              </svg>
-              <h3 class="text-[#00ff41] font-mono text-sm tracking-wider uppercase">修改会话标识</h3>
-            </div>
-            <button @click="closeRenameModal" class="text-[#444444] hover:text-[#00ff41] transition-colors">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-              </svg>
-            </button>
-          </div>
-          <!-- 内容区 -->
-          <div class="p-5">
-            <div class="mb-4">
-              <label class="block text-[10px] text-[#666666] font-mono uppercase tracking-wider mb-2">新标识符</label>
-              <input
-                v-model="renameTitle"
-                maxlength="35" 
-                type="text"
-                placeholder="输入新标题..."
-                class="w-full bg-[#111111] text-[#00ff41] border border-[#333333] px-3 py-2.5 font-mono text-sm focus:outline-none focus:border-[#00ff41] focus:shadow-[0_0_10px_rgba(0,255,65,0.2)] transition-all placeholder-[#333333]"
-                @keyup.enter="confirmRename"
-              />
-            </div>
-            <div class="flex justify-end gap-3">
-              <button
-                @click="closeRenameModal"
-                class="px-4 py-2 text-xs text-[#666666] hover:text-[#aaaaaa] transition-colors font-mono uppercase tracking-wider border border-transparent hover:border-[#333333]"
-              >
-                [ 取消 ]
-              </button>
-              <button
-                @click="confirmRename"
-                :disabled="!renameTitle.trim() || renamingSession"
-                class="px-4 py-2 bg-[#00ff41]/10 border border-[#00ff41]/50 text-[#00ff41] hover:bg-[#00ff41]/20 hover:border-[#00ff41] hover:shadow-[0_0_15px_rgba(0,255,65,0.3)] transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none text-xs font-mono uppercase tracking-wider"
-              >
-                {{ renamingSession ? '[ 处理中... ]' : '[ 确认 ]' }}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Teleport>
+    <!-- 重命名会话弹窗（独立组件） -->
+    <RenameSessionModal
+      v-model="showRenameModal"
+      :initial-title="selectedSession?.title || ''"
+      :loading="renamingSession"
+      @confirm="confirmRename"
+    />
 
-    <!-- 删除确认弹窗 -->
-    <Teleport to="body">
-      <div
-        v-if="showDeleteConfirm"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
-        @click.self="closeDeleteConfirm"
-      >
-        <div class="bg-[#0a0a0a] border border-[#ff0040]/50 w-[420px] shadow-[0_0_40px_rgba(255,0,64,0.15)]">
-          <!-- 标题栏 -->
-          <div class="flex items-center justify-between px-4 py-3 border-b border-[#ff0040]/20 bg-[#ff0040]/5">
-            <div class="flex items-center gap-3">
-              <svg class="w-4 h-4 text-[#ff0040]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
-              </svg>
-              <h3 class="text-[#ff0040] font-mono text-sm tracking-wider uppercase">危险操作警告</h3>
-            </div>
-            <button @click="closeDeleteConfirm" class="text-[#444444] hover:text-[#ff0040] transition-colors">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-              </svg>
-            </button>
-          </div>
-          <!-- 内容区 -->
-          <div class="p-5">
-            <div class="mb-5">
-              <div class="text-[10px] text-[#666666] font-mono uppercase tracking-wider mb-3">目标会话</div>
-              <div class="bg-[#111111] border border-[#222222] px-3 py-2.5 font-mono text-sm text-[#00ff41]">
-                {{ selectedSession?.title }}
-              </div>
-            </div>
-            <div class="flex items-start gap-2 text-[#666666] text-xs font-mono mb-5">
-              <span class="text-[#ff0040]">[WARNING]</span>
-              <span>此操作将永久删除该会话及其所有通信记录，数据不可恢复。</span>
-            </div>
-            <div class="flex justify-end gap-3">
-              <button
-                @click="closeDeleteConfirm"
-                class="px-4 py-2 text-xs text-[#666666] hover:text-[#aaaaaa] transition-colors font-mono uppercase tracking-wider border border-transparent hover:border-[#333333]"
-              >
-                [ 取消 ]
-              </button>
-              <button
-                @click="confirmDelete"
-                :disabled="deletingSession"
-                class="px-4 py-2 bg-[#ff0040]/10 border border-[#ff0040]/50 text-[#ff0040] hover:bg-[#ff0040]/20 hover:border-[#ff0040] hover:shadow-[0_0_15px_rgba(255,0,64,0.3)] transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none text-xs font-mono uppercase tracking-wider"
-              >
-                {{ deletingSession ? '[ 处理中... ]' : '[ 确认删除 ]' }}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Teleport>
+    <!-- 删除确认弹窗（独立组件） -->
+    <DeleteSessionConfirmModal
+      v-model="showDeleteConfirm"
+      :session-title="selectedSession?.title"
+      :loading="deletingSession"
+      @confirm="confirmDelete"
+    />
   </div>
 </template>
 
@@ -437,7 +319,17 @@ import { ref, computed, onMounted, nextTick } from 'vue'
 import { usePlayerStore } from '../stores/player'
 import SettingsModal from '../components/SettingsModal.vue'
 import NewSessionModal from '../components/NewSessionModal.vue'
-import { getAvatarUrl, getIllustrationUrl } from '../api/assets'
+import SessionActionMenu from '../components/SessionActionMenu.vue'
+import RenameSessionModal from '../components/RenameSessionModal.vue'
+import DeleteSessionConfirmModal from '../components/DeleteSessionConfirmModal.vue'
+import {
+  getAvatarUrl,
+  getIllustrationUrl,
+  markAvatarInvalid,
+  isAvatarValid,
+  markIllustrationInvalid,
+  isIllustrationValid
+} from '../api/assets'
 import {
   getSessions,
   createSession,
@@ -490,19 +382,27 @@ const menuPosition = ref({ x: 0, y: 0 })
 
 // 重命名相关状态
 const showRenameModal = ref(false)
-const renameTitle = ref('')
 const renamingSession = ref(false)
 
 // 删除确认相关状态
 const showDeleteConfirm = ref(false)
 const deletingSession = ref(false)
 
-// --- 3. 新增预检查头像函数 ---
+// --- 3. 新增预检查头像函数（带本页缓存）---
 const verifyAvatar = (npcName: string): Promise<boolean> => {
+  // 如果本次页面启动期间已判定为无效头像，直接返回 false，避免重复请求
+  if (!isAvatarValid(npcName)) {
+    return Promise.resolve(false)
+  }
+
   return new Promise((resolve) => {
     const img = new Image()
     img.onload = () => resolve(true)   // 加载成功
-    img.onerror = () => resolve(false) // 加载失败
+    img.onerror = () => {
+      // 一旦加载失败，标记为无效，后续不再请求
+      markAvatarInvalid(npcName)
+      resolve(false)
+    }
     img.src = getAvatarUrl(npcName)
   })
 }
@@ -525,9 +425,13 @@ const currentSessionNpc = computed(() => {
   return currentSession.value?.npc_name || ''
 })
 
-// 当前立绘 URL
+// 当前立绘 URL（按 NPC + 情绪 维度做本页缓存）
 const currentIllustrationUrl = computed(() => {
   if (!currentSessionNpc.value || illustrationError.value) return ''
+  // 如果当前 NPC+情绪 已经被判定为无效立绘，则直接返回空字符串，避免重复请求
+  if (!isIllustrationValid(currentSessionNpc.value, currentEmotion.value)) {
+    return ''
+  }
   return getIllustrationUrl(currentSessionNpc.value, currentEmotion.value)
 })
 
@@ -548,9 +452,10 @@ const handleAvatarError = (event: Event, npcName?: string) => {
     placeholder.className = 'w-full h-full flex items-center justify-center text-[#333333] text-3xl font-mono'
     placeholder.textContent = name.charAt(0).toUpperCase()
     parent.appendChild(placeholder)
-    // 记录头像加载失败的NPC
+    // 记录头像加载失败的NPC，并在本次页面启动期间标记其头像无效
     if (name && name !== '?') {
       npcsWithFailedAvatar.value.add(name)
+      markAvatarInvalid(name)
     }
   }
 }
@@ -558,6 +463,10 @@ const handleAvatarError = (event: Event, npcName?: string) => {
 // 立绘加载失败处理
 const handleIllustrationError = () => {
   illustrationError.value = true
+  // 标记当前 NPC+情绪 的立绘无效，避免本次页面生命周期内重复请求
+  if (currentSessionNpc.value && currentEmotion.value) {
+    markIllustrationInvalid(currentSessionNpc.value, currentEmotion.value)
+  }
 }
 
 // 加载会话列表（带重试机制）
@@ -751,8 +660,9 @@ const sendChatMessage = async () => {
       }, 2000)
     }
 
-    // 更新情绪（切换立绘）
+    // 更新情绪（切换立绘），并在情绪变化时重置错误标记
     currentEmotion.value = response.emotion
+    illustrationError.value = false
 
     isFirstMessage.value = false
 
@@ -784,7 +694,17 @@ const scrollToBottom = () => {
 // 打开会话操作菜单
 const openSessionMenu = (session: Session, event: MouseEvent) => {
   selectedSession.value = session
-  menuPosition.value = { x: event.clientX, y: event.clientY }
+  const target = event.currentTarget as HTMLElement | null
+  if (target) {
+    const rect = target.getBoundingClientRect()
+    // 让菜单左上角与按钮右下角大致对齐，稍微增加一点间距
+    menuPosition.value = {
+      x: rect.right + 4,
+      y: rect.bottom + 4
+    }
+  } else {
+    menuPosition.value = { x: event.clientX, y: event.clientY }
+  }
   showSessionMenu.value = true
 }
 
@@ -796,26 +716,19 @@ const closeSessionMenu = () => {
 // 打开重命名弹窗
 const openRenameModal = () => {
   if (selectedSession.value) {
-    renameTitle.value = selectedSession.value.title
     showRenameModal.value = true
     closeSessionMenu()
   }
 }
 
-// 关闭重命名弹窗
-const closeRenameModal = () => {
-  showRenameModal.value = false
-  renameTitle.value = ''
-}
-
 // 确认重命名
-const confirmRename = async () => {
-  if (!selectedSession.value || !renameTitle.value.trim()) return
+const confirmRename = async (newTitle: string) => {
+  if (!selectedSession.value || !newTitle.trim()) return
 
   renamingSession.value = true
   try {
     const response = await updateSessionTitle(selectedSession.value.session_id, {
-      title: renameTitle.value.trim()
+      title: newTitle.trim()
     })
 
     // 更新本地会话列表中的标题
@@ -824,12 +737,12 @@ const confirmRename = async () => {
       session.title = response.title
     }
 
-    // 如果当前正在查看这个会话，同步更新显示
+    // 如果当前正在查看这个会话，同步更新显示（currentSession 是 computed，会自动更新）
     if (currentSessionId.value === response.session_id) {
-      // currentSession 是 computed，会自动更新
+      // no-op
     }
 
-    closeRenameModal()
+    showRenameModal.value = false
   } catch (error) {
     console.error('Failed to rename session:', error)
     alert('重命名失败，请稍后重试')
