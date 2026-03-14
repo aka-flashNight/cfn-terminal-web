@@ -1,6 +1,7 @@
 import axios, { type AxiosInstance } from 'axios'
 
-export const BASE_URL = 'http://127.0.0.1:7077'
+// 相对路径，请求发往当前页所在端口（开发 5173 / 打包后 7078），由该端口代理 /api 到后端 7077
+export const BASE_URL = ''
 
 const request: AxiosInstance = axios.create({
   baseURL: BASE_URL,

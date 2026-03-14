@@ -1,4 +1,5 @@
-import { BASE_URL } from '../utils/request'
+// 资源 URL 一律用相对路径 /api/...，由当前页所在端口（开发 5173 / 打包后 7078）代理到后端 7077，保证同源以便 canvas 读像素
+const API_BASE = ''
 
 // 缓存没有头像的NPC名称（本次页面启动期间有效）
 const invalidAvatarCache = new Set<string>()
@@ -33,7 +34,7 @@ export function getAvatarUrl(npcName: string): string {
   if (invalidAvatarCache.has(npcName)) {
     return ''
   }
-  return `${BASE_URL}/api/assets/avatar/${encodeURIComponent(npcName)}`
+  return `${API_BASE}/api/assets/avatar/${encodeURIComponent(npcName)}`
 }
 
 /**
@@ -59,14 +60,11 @@ export function isIllustrationValid(npcName: string, emotion: string): boolean {
 
 /**
  * 获取NPC立绘URL
- * @param npcName NPC名称
- * @param emotion 情绪状态
- * @returns 立绘图片URL
+ * 相对路径 /api/...，由前端所在端口代理到后端，同源以便 canvas 读像素算有效区域
  */
 export function getIllustrationUrl(npcName: string, emotion: string): string {
-  // 如果当前 NPC+情绪 已经被判定立绘无效，则直接返回空字符串，避免重复请求
   if (!isIllustrationValid(npcName, emotion)) {
     return ''
   }
-  return `${BASE_URL}/api/assets/illustration/${encodeURIComponent(npcName)}/${encodeURIComponent(emotion)}`
+  return `${API_BASE}/api/assets/illustration/${encodeURIComponent(npcName)}/${encodeURIComponent(emotion)}`
 }

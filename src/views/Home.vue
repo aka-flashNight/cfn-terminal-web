@@ -167,23 +167,41 @@
             </button>
           </div>
 
-          <!-- NPC 立绘：算完边界后再显示，避免错位闪现；用已加载 img 算边界，不发起跨域请求 -->
+          <!-- 立绘拖动热区：仅右侧两种模式、仅覆盖右侧 300px，在聊天层之上，用于接收拖动而不挡住左侧对话 -->
+          <div
+            v-if="currentIllustrationUrl && !illustrationError && (illustrationMode === 'right-docked' || illustrationMode === 'right-center')"
+            class="absolute bottom-0 right-0 w-[300px] h-[600px] z-20"
+            :class="illustrationDragging ? 'cursor-grabbing' : 'cursor-grab'"
+            @mousedown.prevent="onIllustrationDragStart"
+          />
+
+          <!-- NPC 立绘：在聊天下方 z-0，遮罩用于凸显对话、不遮挡聊天 -->
           <div
             v-if="currentIllustrationUrl && !illustrationError"
             class="absolute inset-0 pointer-events-none z-0 overflow-hidden transition-opacity duration-200"
             :class="illustrationReady ? 'opacity-100' : 'opacity-0'"
           >
+            <!-- 后台预加载新表情，不参与布局 -->
+            <img
+              v-if="illustrationPendingUrl"
+              ref="illustrationPendingImgRef"
+              :src="illustrationPendingUrl"
+              class="absolute opacity-0 w-0 h-0 pointer-events-none"
+              aria-hidden="true"
+              @load="onPendingIllustrationLoad"
+              @error="onPendingIllustrationError"
+            />
             <div
               ref="illustrationContainerRef"
               class="absolute bottom-0 left-0 right-0 h-[600px] overflow-hidden"
             >
               <img
                 ref="illustrationImgRef"
-                :src="currentIllustrationUrl"
+                :src="illustrationDisplayUrl"
                 :alt="currentSessionNpc"
                 class="absolute top-0 opacity-90"
                 :style="illustrationImgStyle"
-                @load="onIllustrationLoad($event, currentIllustrationUrl)"
+                @load="onDisplayIllustrationLoad"
                 @error="handleIllustrationError"
               />
             </div>
@@ -474,10 +492,18 @@ const illustrationBoundsCache = new Map<string, { left: number; right: number; c
 const illustrationContainerRef = ref<HTMLDivElement | null>(null)
 const illustrationContainerWidth = ref(0)
 const illustrationImgRef = ref<HTMLImageElement | null>(null)
+const illustrationPendingImgRef = ref<HTMLImageElement | null>(null)
 // 立绘 img 实际渲染宽高（先按 y 缩到 600 后，若再被容器缩放则用于修正 centerPx/rightPx）
 const illustrationImgRenderedWidth = ref(0)
 // 等边界算完（或失败）后再显示立绘，避免错位闪现
 const illustrationReady = ref(false)
+// 当前真正显示出来的立绘 URL（仅在新图就绪后替换，避免先隐藏再显示导致闪烁）
+const illustrationDisplayUrl = ref('')
+// 正在后台加载的新表情 URL，加载并算完边界后再赋给 illustrationDisplayUrl
+const illustrationPendingUrl = ref('')
+// 立绘手动偏移（拖动后叠加在三种模式的位置上）；点三个模式按钮时重置为 0
+const illustrationOffset = ref({ x: 0, y: 0 })
+const illustrationDragging = ref(false)
 
 // 记录头像加载失败的NPC（用于隐藏无头像的NPC）
 const npcsWithFailedAvatar = ref<Set<string>>(new Set())
@@ -585,11 +611,14 @@ const illustrationImgStyle = computed(() => {
   } else {
     left = `calc(100% - ${rightPx}px)`
   }
+  const ox = illustrationOffset.value.x
+  const oy = illustrationOffset.value.y
   return {
     width: `${ILLUST_DISPLAY_WIDTH}px`,
     height: `${ILLUST_SCALED_HEIGHT}px`,
     top: '0',
-    left
+    left,
+    transform: `translate(${ox}px, ${oy}px)`
   }
 })
 
@@ -685,33 +714,99 @@ function updateIllustrationImgRenderedSize() {
   illustrationImgRenderedWidth.value = el ? Math.round(el.getBoundingClientRect().width) : 0
 }
 
-// 立绘图片加载成功：用当前 img 算边界（不发起新请求，避免 CORS），算完后再显示
-async function onIllustrationLoad(event: Event, imgSrc: string) {
+// 可见立绘 img load：更新渲染尺寸；若尚无边界（如刷新后首帧直接显示）则用本图算边界
+async function onDisplayIllustrationLoad(event: Event) {
   const img = event.target as HTMLImageElement
-  if (!img || currentIllustrationUrl.value !== imgSrc) return
-  const bounds = await getIllustrationContentBounds(img, imgSrc)
-  if (bounds && currentIllustrationUrl.value === imgSrc) {
-    illustrationContentBounds.value = bounds
+  const url = illustrationDisplayUrl.value
+  if (img && url && !illustrationContentBounds.value) {
+    const bounds = await getIllustrationContentBounds(img, url)
+    if (bounds && illustrationDisplayUrl.value === url) {
+      illustrationContentBounds.value = bounds
+    }
   }
   nextTick(() => updateIllustrationImgRenderedSize())
-  if (currentIllustrationUrl.value === imgSrc) {
-    illustrationReady.value = true
-  }
 }
 
-// 切换立绘布局模式
+// 后台预加载的新表情 load：算边界后赋给 displayUrl，再替换显示，避免先隐再显
+async function onPendingIllustrationLoad(event: Event) {
+  const img = event.target as HTMLImageElement
+  const url = illustrationPendingUrl.value
+  if (!img || !url || currentIllustrationUrl.value !== url) return
+  const bounds = await getIllustrationContentBounds(img, url)
+  if (currentIllustrationUrl.value !== url) return
+  if (bounds) {
+    illustrationContentBounds.value = bounds
+  }
+  illustrationDisplayUrl.value = url
+  illustrationPendingUrl.value = ''
+  illustrationReady.value = true
+  nextTick(() => updateIllustrationImgRenderedSize())
+}
+
+// 后台预加载立绘失败（如 404）：标记当前 NPC+情绪 无效并隐藏立绘
+function onPendingIllustrationError() {
+  illustrationPendingUrl.value = ''
+  handleIllustrationError()
+}
+
+// 切换立绘布局模式（同时重置手动偏移）
 const setIllustrationMode = (mode: 'global-center' | 'right-docked' | 'right-center') => {
   illustrationMode.value = mode
+  illustrationOffset.value = { x: 0, y: 0 }
 }
 
-// 立绘 URL 变化时清空边界并隐藏，等新图 load 且边界算完后再显示
+// 立绘拖动：在 600px 容器上按下并移动时叠加偏移
+function onIllustrationDragStart(e: MouseEvent) {
+  if (!illustrationDisplayUrl.value) return
+  e.preventDefault()
+  illustrationDragging.value = true
+  const startX = e.clientX
+  const startY = e.clientY
+  const start = { ...illustrationOffset.value }
+  const onMove = (e2: MouseEvent) => {
+    const dy = start.y + (e2.clientY - startY)
+    // 向上最多移 10px，避免无下身立绘穿帮；向下不限制
+    illustrationOffset.value = {
+      x: start.x + (e2.clientX - startX),
+      y: Math.max(-10, dy)
+    }
+  }
+  const onUp = () => {
+    illustrationDragging.value = false
+    window.removeEventListener('mousemove', onMove)
+    window.removeEventListener('mouseup', onUp)
+  }
+  window.addEventListener('mousemove', onMove)
+  window.addEventListener('mouseup', onUp)
+}
+
+// 立绘 URL 变化：有缓存则直接切到 displayUrl；无缓存时若当前无显示则立即显示（避免依赖 pending load 偶发不触发），有显示则后台预加载再替换
 watch(currentIllustrationUrl, (url) => {
   if (!url) {
+    illustrationDisplayUrl.value = ''
+    illustrationPendingUrl.value = ''
     illustrationContentBounds.value = null
     illustrationReady.value = false
-  } else {
-    illustrationReady.value = false
+    return
   }
+  const cached = illustrationBoundsCache.get(url)
+  if (cached) {
+    illustrationContentBounds.value = cached
+    illustrationDisplayUrl.value = url
+    illustrationPendingUrl.value = ''
+    illustrationReady.value = true
+    return
+  }
+  if (illustrationDisplayUrl.value) {
+    // 已有立绘：切表情时用 pending 预加载，就绪后再替换，不先隐藏
+    illustrationPendingUrl.value = url
+    return
+  }
+  // 无缓存且当前无显示（如刷新后首帧）：立即显示，用默认边界；可见 img load 后再算边界，避免依赖隐藏图 load 偶发不触发
+  illustrationDisplayUrl.value = url
+  illustrationPendingUrl.value = ''
+  illustrationContentBounds.value = null
+  illustrationReady.value = true
 })
 
 // 立绘容器出现时更新宽度并挂载 ResizeObserver；消失时断开
