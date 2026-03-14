@@ -268,6 +268,52 @@
               </p>
             </div>
 
+            <!-- 立绘管理 -->
+            <div class="pt-4 border-t border-[#333333]">
+              <h3 class="text-xs font-medium text-[#888888] mb-2 font-mono uppercase tracking-wider flex items-center gap-2">
+                <span class="w-4 h-[1px] bg-[#555555]"></span>
+                立绘管理
+                <span class="w-4 h-[1px] bg-[#555555]"></span>
+              </h3>
+              <p class="text-[#555555] text-xs font-mono mb-3">
+                立绘来源：① 将 illustration.zip 与 exe 放在同一目录，程序会自动解压（速度较快）；② 无 zip 且有 Java 时，可从 SWF 导成立绘（需数分钟，对硬件有一定要求）。
+              </p>
+              <div class="flex flex-wrap gap-2 items-center">
+                <button
+                  type="button"
+                  :disabled="exportIllustrationsLoading"
+                  @click="runExportIllustrations(false)"
+                  class="px-4 py-2 bg-[#1a1a1a] hover:bg-[#252525] border border-[#444444] hover:border-[#00ff41] text-gray-400 hover:text-[#00ff41] text-sm font-medium rounded transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  补充缺失立绘
+                </button>
+                <button
+                  type="button"
+                  :disabled="exportIllustrationsLoading"
+                  @click="runExportIllustrations(true)"
+                  class="px-4 py-2 bg-[#1a1a1a] hover:bg-[#252525] border border-[#444444] hover:border-[#00ff41] text-gray-400 hover:text-[#00ff41] text-sm font-medium rounded transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  重新生成全部立绘
+                </button>
+              </div>
+              <p v-if="exportIllustrationsLoading" class="text-[#00ff41] text-xs font-mono mt-2">
+                正在准备立绘，请稍候（从 SWF 导出时约需数分钟）。
+              </p>
+              <div
+                v-else-if="exportIllustrationsMessage"
+                class="mt-2 p-2 rounded text-xs font-mono"
+                :class="exportIllustrationsSuccess ? 'bg-[#00ff41]/10 border border-[#00ff41]/50 text-[#00ff41]' : 'bg-[#ff0040]/10 border border-[#ff0040]/50 text-[#ff0040]'"
+              >
+                {{ exportIllustrationsMessage }}
+              </div>
+              <div
+                v-else-if="exportIllustrationsError"
+                class="mt-2 p-2 rounded text-xs font-mono bg-[#ff0040]/10 border border-[#ff0040]/50 text-[#ff0040]"
+              >
+                {{ exportIllustrationsError }}
+              </div>
+            </div>
+
             <!-- 提示信息 -->
             <div
               v-if="isFirstLoad"
@@ -315,6 +361,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { usePlayerStore, Gender, Progress, inferApiBase, PROGRESS_TO_IDENTITY, COMMON_PLATFORMS, getPlatformByValue, inferPlatformFromApiBase } from '../stores/player'
+import { exportIllustrations } from '../api/assets'
+import type { AxiosError } from 'axios'
 
 type GenderType = typeof Gender[keyof typeof Gender]
 type ProgressType = typeof Progress[keyof typeof Progress]
@@ -341,6 +389,12 @@ const formData = ref({
 })
 
 const isFirstLoad = ref(false)
+
+// 立绘导出状态
+const exportIllustrationsLoading = ref(false)
+const exportIllustrationsMessage = ref('')
+const exportIllustrationsSuccess = ref(false)
+const exportIllustrationsError = ref('')
 
 // 常见平台列表（排除默认的 empty 选项）
 const commonPlatforms = Object.values(COMMON_PLATFORMS)
@@ -408,6 +462,32 @@ const handleSave = () => {
   // 关闭弹窗
   emit('update:modelValue', false)
   isFirstLoad.value = false
+}
+
+const runExportIllustrations = async (overwrite: boolean) => {
+  exportIllustrationsError.value = ''
+  exportIllustrationsMessage.value = ''
+  exportIllustrationsLoading.value = true
+  try {
+    const data = await exportIllustrations(overwrite)
+    exportIllustrationsSuccess.value = !!data.success
+    const parts: string[] = []
+    if (data.message) parts.push(data.message)
+    if (data.source === 'zip') parts.push('（本次来自 illustration.zip 解压）')
+    if (data.source === 'swf') parts.push('（本次来自 SWF 导出）')
+    exportIllustrationsMessage.value = parts.join(' ')
+  } catch (err: unknown) {
+    const axiosErr = err as AxiosError<{ detail?: string }>
+    if (axiosErr.response?.status === 503 && axiosErr.response?.data?.detail) {
+      exportIllustrationsError.value = axiosErr.response.data.detail
+    } else if (axiosErr.code === 'ECONNABORTED' || axiosErr.message?.includes('timeout')) {
+      exportIllustrationsError.value = '请求超时（10 分钟）。从 SWF 导成立绘可能耗时较长，请确认后端仍在处理或稍后重试。'
+    } else {
+      exportIllustrationsError.value = axiosErr.response?.data?.detail ?? axiosErr.message ?? '立绘导出失败，请稍后重试。'
+    }
+  } finally {
+    exportIllustrationsLoading.value = false
+  }
 }
 
 // 检查是否是首次加载（根据用户是否保存过配置）

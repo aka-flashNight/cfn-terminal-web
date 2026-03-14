@@ -1,5 +1,10 @@
 // 资源 URL 一律用相对路径 /api/...，由当前页所在端口（开发 5173 / 打包后 7078）代理到后端 7077，保证同源以便 canvas 读像素
+import request from '../utils/request'
+
 const API_BASE = ''
+
+/** 立绘导出接口超时（10 分钟）：从 SWF 导成立绘可能需数分钟 */
+const EXPORT_ILLUSTRATIONS_TIMEOUT = 10 * 60 * 1000
 
 // 缓存没有头像的NPC名称（本次页面启动期间有效）
 const invalidAvatarCache = new Set<string>()
@@ -67,4 +72,26 @@ export function getIllustrationUrl(npcName: string, emotion: string): string {
     return ''
   }
   return `${API_BASE}/api/assets/illustration/${encodeURIComponent(npcName)}/${encodeURIComponent(emotion)}`
+}
+
+/** 导出立绘接口的响应体（200） */
+export interface ExportIllustrationsResult {
+  success: boolean
+  message?: string | null
+  source?: 'zip' | 'swf' | null
+  processed?: number
+  total?: number
+  error?: string
+}
+
+/**
+ * 导出/加载立绘
+ * - overwrite=false：仅补充缺失立绘（有 zip 则解压 zip，无 zip 且有 Java 则从 SWF 导出）
+ * - overwrite=true：重新生成所有立绘并覆盖
+ * 从 SWF 导出时可能需数分钟，请求超时设为 10 分钟。
+ */
+export function exportIllustrations(overwrite: boolean): Promise<ExportIllustrationsResult> {
+  return request
+    .post<ExportIllustrationsResult>('/api/assets/export-illustrations', { overwrite }, { timeout: EXPORT_ILLUSTRATIONS_TIMEOUT })
+    .then(res => res.data)
 }

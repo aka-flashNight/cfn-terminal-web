@@ -728,8 +728,8 @@ async function onDisplayIllustrationLoad(event: Event) {
 }
 
 // 后台预加载的新表情 load：算边界后赋给 displayUrl，再替换显示，避免先隐再显
-async function onPendingIllustrationLoad(event: Event) {
-  const img = event.target as HTMLImageElement
+async function onPendingIllustrationLoad() {
+  const img = illustrationPendingImgRef.value
   const url = illustrationPendingUrl.value
   if (!img || !url || currentIllustrationUrl.value !== url) return
   const bounds = await getIllustrationContentBounds(img, url)
