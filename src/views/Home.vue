@@ -167,10 +167,10 @@
             </button>
           </div>
 
-          <!-- 立绘拖动热区：仅右侧两种模式、仅覆盖右侧 300px，在聊天层之上，用于接收拖动而不挡住左侧对话 -->
+          <!-- 立绘拖动热区：仅右侧两种模式、右侧 300px 留出 6px 给滚动条，不遮挡滚动条 -->
           <div
             v-if="currentIllustrationUrl && !illustrationError && (illustrationMode === 'right-docked' || illustrationMode === 'right-center')"
-            class="absolute bottom-0 right-0 w-[300px] h-[600px] z-20"
+            class="absolute bottom-0 right-[6px] w-[294px] h-[600px] z-20"
             :class="illustrationDragging ? 'cursor-grabbing' : 'cursor-grab'"
             @mousedown.prevent="onIllustrationDragStart"
           />
@@ -218,62 +218,154 @@
             class="absolute inset-0 overflow-y-auto overflow-x-hidden p-4 space-y-4 z-10"
             :class="{ 'pr-[316px]': currentIllustrationUrl && !illustrationError && illustrationMode !== 'global-center' }"
           >
-            <!-- 历史消息 -->
+            <!-- 历史消息：按块渲染，单独成段的【】脱离气泡偏左/偏右 -->
             <div
               v-for="msg in chatMessages"
               :key="msg.id"
-              class="flex"
-              :class="msg.role === 'user' ? 'justify-start' : 'justify-end'"
+              class="flex flex-col gap-0.5"
             >
-              <!-- 玩家消息（左侧） -->
-              <div v-if="msg.role === 'user'" class="flex items-start gap-4" :class="chatBubbleMaxWidthClass">
-                <div class="w-10 h-10 rounded-full bg-[#00ff41]/20 border border-[#00ff41]/50 flex items-center justify-center flex-shrink-0">
-                  <span class="text-[#00ff41] text-xs">你</span>
+              <!-- 占位/加载中：整条为占位时只显示一条气泡，不拆块 -->
+              <template v-if="isLoadingPlaceholder(msg.content)">
+                <div class="flex" :class="msg.role === 'user' ? 'justify-start' : 'justify-end'">
+                  <div class="flex items-start gap-4" :class="chatBubbleMaxWidthClass">
+                    <div class="relative">
+                      <div
+                        class="pointer-events-none absolute inset-0 -m-6 rounded-2xl opacity-80 blur-[14px]"
+                        style="background: radial-gradient(circle at 100% 50%, rgba(0,0,0,0.7) 0%, rgba(5,5,5,0.58) 34%, rgba(5,5,5,0.3) 70%, transparent 100%);"
+                      ></div>
+                      <div class="relative bg-[#0b0b0b] border border-[#00ffff]/40 rounded-lg p-3">
+                        <p class="text-sm whitespace-pre-wrap text-[#555555] animate-pulse">{{ msg.content }}</p>
+                        <p class="text-[#555555] text-xs mt-1">{{ formatTime(msg.timestamp) }}</p>
+                      </div>
+                    </div>
+                    <div class="relative flex-shrink-0">
+                      <div
+                        class="absolute inset-0 -m-8 rounded-full opacity-90 blur-[14px] pointer-events-none"
+                        style="background: radial-gradient(circle, rgba(0,0,0,0.82) 0%, rgba(5,5,5,0.72) 35%, rgba(5,5,5,0.36) 70%, transparent 100%);"
+                      ></div>
+                      <div
+                        class="absolute inset-0 -m-1 rounded-full opacity-70 blur-[3px] pointer-events-none"
+                        style="background: radial-gradient(circle, rgba(0,255,255,0.9) 0%, rgba(0,255,255,0.35) 35%, transparent 70%);"
+                      ></div>
+                      <div
+                        class="relative w-14 h-14 rounded-full border-2 border-[#00ffff]/60 overflow-hidden bg-[#020202]/95 shadow-[0_0_12px_rgba(0,255,255,0.45)]"
+                      >
+                        <img
+                          :src="getAvatarUrl(currentSessionNpc)"
+                          :alt="currentSessionNpc"
+                          class="w-full h-full object-cover"
+                          @error="handleAvatarError"
+                        />
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div class="bg-[#1a1a1a] border border-[#333333] rounded-lg p-3">
-                  <p class="text-gray-300 text-sm whitespace-pre-wrap">{{ msg.content }}</p>
-                  <p class="text-[#555555] text-xs mt-1">{{ formatTime(msg.timestamp) }}</p>
-                </div>
-              </div>
+              </template>
 
-              <!-- NPC消息（右侧） -->
-              <div v-else class="flex items-start gap-4" :class="chatBubbleMaxWidthClass">
-                <!-- NPC 对话气泡的大范围暗色晕光：右侧（靠近立绘一侧）更黑，向左逐渐过渡到透明，整体比头像晕光更淡一些 -->
-                <div class="relative">
+              <!-- 正常消息：按块渲染 -->
+              <template v-else>
+                <template v-for="(block, blockIdx) in messageToBlocks(msg.content)" :key="blockIdx">
+                  <!-- 单独成段的动作：与气泡左右对齐，上下居中留白，层级高于气泡光晕 -->
                   <div
-                    class="pointer-events-none absolute inset-0 -m-6 rounded-2xl opacity-80 blur-[14px]"
-                    style="background: radial-gradient(circle at 100% 50%, rgba(0,0,0,0.7) 0%, rgba(5,5,5,0.58) 34%, rgba(5,5,5,0.3) 70%, transparent 100%);"
-                  ></div>
-                  <div class="relative bg-[#0b0b0b] border border-[#00ffff]/40 rounded-lg p-3">
-                    <p class="text-[#00ffff] text-sm whitespace-pre-wrap">{{ msg.content }}</p>
-                    <p class="text-[#555555] text-xs mt-1">{{ formatTime(msg.timestamp) }}</p>
-                  </div>
-                </div>
-                <!-- NPC 头像：增加内圈霓虹光环 + 更大范围暗色晕光，和立绘之间做多层过渡 -->
-                <div class="relative flex-shrink-0">
-                  <!-- 外圈大范围暗色晕光（覆盖头像周围更大区域，越近越暗、越远越透明） -->
-                  <div
-                    class="absolute inset-0 -m-8 rounded-full opacity-90 blur-[14px] pointer-events-none"
-                    style="background: radial-gradient(circle, rgba(0,0,0,0.82) 0%, rgba(5,5,5,0.72) 35%, rgba(5,5,5,0.36) 70%, transparent 100%);"
-                  ></div>
-                  <!-- 外层发光环（比头像略大，做柔和过渡） -->
-                  <div
-                    class="absolute inset-0 -m-1 rounded-full opacity-70 blur-[3px] pointer-events-none"
-                    style="background: radial-gradient(circle, rgba(0,255,255,0.9) 0%, rgba(0,255,255,0.35) 35%, transparent 70%);"
-                  ></div>
-                  <!-- 实际头像容器 -->
-                  <div
-                    class="relative w-14 h-14 rounded-full border-2 border-[#00ffff]/60 overflow-hidden bg-[#020202]/95 shadow-[0_0_12px_rgba(0,255,255,0.45)]"
+                    v-if="block.type === 'standalone'"
+                    class="flex mt-5 mb-1 relative z-10"
+                    :class="msg.role === 'user' ? 'justify-start' : 'justify-end'"
                   >
-                    <img
-                      :src="getAvatarUrl(currentSessionNpc)"
-                      :alt="currentSessionNpc"
-                      class="w-full h-full object-cover"
-                      @error="handleAvatarError"
-                    />
+                    <div class="flex items-start gap-4" :class="chatBubbleMaxWidthClass">
+                      <!-- 用户：头像占位 + 动作文字，与气泡左缘对齐 -->
+                      <template v-if="msg.role === 'user'">
+                        <div class="w-10 h-10 flex-shrink-0" aria-hidden="true" />
+                        <div class="text-sm whitespace-pre-wrap min-w-0">
+                          <span
+                            v-for="(node, idx) in parseActionNodes(block.content)"
+                            :key="idx"
+                            :class="node.type === 'action'
+                              ? 'message-standalone-action'
+                              : 'text-gray-300 font-normal'"
+                          >{{ node.content }}</span>
+                        </div>
+                      </template>
+                      <!-- NPC：动作文字 + 头像占位，与气泡右缘对齐 -->
+                      <template v-else>
+                        <div class="text-sm whitespace-pre-wrap min-w-0">
+                          <span
+                            v-for="(node, idx) in parseActionNodes(block.content)"
+                            :key="idx"
+                            :class="node.type === 'action'
+                              ? 'message-standalone-action message-standalone-action-npc'
+                              : 'text-[#00ffff] font-normal'"
+                          >{{ node.content }}</span>
+                        </div>
+                        <div class="w-14 h-14 flex-shrink-0" aria-hidden="true" />
+                      </template>
+                    </div>
                   </div>
-                </div>
-              </div>
+
+                  <!-- 气泡段落 -->
+                  <div
+                    v-else-if="block.type === 'bubble' && block.content.trim()"
+                    class="flex"
+                    :class="msg.role === 'user' ? 'justify-start' : 'justify-end'"
+                  >
+                    <!-- 玩家消息（左侧） -->
+                    <div v-if="msg.role === 'user'" class="flex items-start gap-4" :class="chatBubbleMaxWidthClass">
+                      <div class="w-10 h-10 rounded-full bg-[#00ff41]/20 border border-[#00ff41]/50 flex items-center justify-center flex-shrink-0">
+                        <span class="text-[#00ff41] text-xs">你</span>
+                      </div>
+                      <div class="bg-[#1a1a1a] border border-[#333333] rounded-lg p-3">
+                        <p class="text-sm whitespace-pre-wrap">
+                          <span
+                            v-for="(node, idx) in parseActionNodes(block.content)"
+                            :key="idx"
+                            :class="node.type === 'action' ? 'message-action-text message-action-inline' : 'text-gray-300'"
+                          >{{ node.content }}</span>
+                        </p>
+                        <p class="text-[#555555] text-xs mt-1">{{ formatTime(msg.timestamp) }}</p>
+                      </div>
+                    </div>
+
+                    <!-- NPC消息（右侧） -->
+                    <div v-else class="flex items-start gap-4" :class="chatBubbleMaxWidthClass">
+                      <div class="relative">
+                        <div
+                          class="pointer-events-none absolute inset-0 -m-6 rounded-2xl opacity-80 blur-[14px]"
+                          style="background: radial-gradient(circle at 100% 50%, rgba(0,0,0,0.7) 0%, rgba(5,5,5,0.58) 34%, rgba(5,5,5,0.3) 70%, transparent 100%);"
+                        ></div>
+                        <div class="relative bg-[#0b0b0b] border border-[#00ffff]/40 rounded-lg p-3">
+                          <p class="text-sm whitespace-pre-wrap">
+                            <span
+                              v-for="(node, idx) in parseActionNodes(block.content)"
+                              :key="idx"
+                              :class="node.type === 'action' ? 'message-action-text message-action-text-npc message-action-inline' : 'text-[#00ffff]'"
+                            >{{ node.content }}</span>
+                          </p>
+                          <p class="text-[#555555] text-xs mt-1">{{ formatTime(msg.timestamp) }}</p>
+                        </div>
+                      </div>
+                      <div class="relative flex-shrink-0">
+                        <div
+                          class="absolute inset-0 -m-8 rounded-full opacity-90 blur-[14px] pointer-events-none"
+                          style="background: radial-gradient(circle, rgba(0,0,0,0.82) 0%, rgba(5,5,5,0.72) 35%, rgba(5,5,5,0.36) 70%, transparent 100%);"
+                        ></div>
+                        <div
+                          class="absolute inset-0 -m-1 rounded-full opacity-70 blur-[3px] pointer-events-none"
+                          style="background: radial-gradient(circle, rgba(0,255,255,0.9) 0%, rgba(0,255,255,0.35) 35%, transparent 70%);"
+                        ></div>
+                        <div
+                          class="relative w-14 h-14 rounded-full border-2 border-[#00ffff]/60 overflow-hidden bg-[#020202]/95 shadow-[0_0_12px_rgba(0,255,255,0.45)]"
+                        >
+                          <img
+                            :src="getAvatarUrl(currentSessionNpc)"
+                            :alt="currentSessionNpc"
+                            class="w-full h-full object-cover"
+                            @error="handleAvatarError"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+              </template>
             </div>
 
             <!-- Loading 状态：仅当「最后一条不是助手消息」时显示，避免与占位 NPC 消息重复成两条 -->
@@ -287,10 +379,47 @@
           </div>
         </div>
 
-        <!-- 发送消息区域 -->
-        <div class="p-4 border-t border-[#333333] bg-[#111111]/50">
+        <!-- 发送消息区域：仅主输入行占位；动作条悬浮在上方，不顶高布局 -->
+        <div class="relative p-4 border-t border-[#333333] bg-[#111111]/50">
+          <!-- 悬浮动作条：绝对定位在输入框上方，不占文档流 -->
+          <div
+            class="action-strip absolute left-4 z-20 flex items-center gap-2 transition-[width] duration-200"
+            :class="actionInputExpanded ? 'w-[88%] max-w-[560px]' : ''"
+          >
+            <button
+              type="button"
+              class="action-toggle-btn flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full text-[#666666] hover:text-[#00ff41] transition-colors duration-200"
+              :aria-label="actionInputExpanded ? '收起动作输入' : '展开动作输入'"
+              @click="actionInputExpanded = !actionInputExpanded"
+            >
+              <svg
+                class="w-4 h-4 transition-transform duration-300 ease-out"
+                :class="actionInputExpanded ? 'rotate-180' : ''"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                viewBox="0 0 24 24"
+              >
+                <path d="M18 15l-6-6-6 6" />
+              </svg>
+            </button>
+            <Transition name="action-input">
+              <input
+                v-show="actionInputExpanded"
+                v-model="actionInput"
+                type="text"
+                placeholder="输入动作..."
+                class="action-floating-input flex-1 min-w-0 bg-[#0f0f0f]/95 text-[#888888] border border-[#2a2a2a] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#00ff41]/50 placeholder-[#444444] shadow-lg"
+                :disabled="isLoading"
+                @keyup.enter="focusMainInput"
+              />
+            </Transition>
+          </div>
           <div class="flex gap-3">
             <input
+              ref="mainInputRef"
               v-model="inputMessage"
               type="text"
               placeholder="输入消息..."
@@ -443,8 +572,7 @@ import {
   updateSessionTitle,
   deleteSession,
   type Session,
-  type ChatMessage,
-  type NPCChatResponse
+  type ChatMessage
 } from '../api/game'
 
 const playerStore = usePlayerStore()
@@ -462,6 +590,9 @@ const creatingSession = ref(false)
 // 聊天相关状态
 const chatMessages = ref<ChatMessage[]>([])
 const inputMessage = ref('')
+const actionInputExpanded = ref(false)
+const actionInput = ref('')
+const mainInputRef = ref<HTMLInputElement | null>(null)
 const isLoading = ref(false)
 const isFirstMessage = ref(true)
 const favorability = ref<number | null>(null)
@@ -978,8 +1109,11 @@ const createNewSession = async (title: string) => {
 const sendChatMessage = async () => {
   if (!inputMessage.value.trim() || isLoading.value || !currentSessionId.value) return
 
-  const message = inputMessage.value.trim()
+  const actionPart = actionInput.value.trim()
+  const dialoguePart = inputMessage.value.trim()
+  const message = actionPart ? `【${actionPart}】\n${dialoguePart}` : dialoguePart
   inputMessage.value = ''
+  actionInput.value = ''
   isLoading.value = true
 
   // 添加用户消息到列表（临时）
@@ -1035,7 +1169,10 @@ const sendChatMessage = async () => {
       },
       onDone(data) {
         const msg = chatMessages.value[npcMsgIndex]
-        if (msg) msg.content = data.reply
+        // 仅当最终回复与当前内容不同时才更新，避免重复赋值导致闪烁
+        if (msg && msg.content !== data.reply) {
+          msg.content = data.reply
+        }
         const prevFavor = favorability.value
         favorability.value = data.favorability
         relationshipLevel.value = data.relationship_level
@@ -1076,11 +1213,91 @@ const sendChatMessage = async () => {
   }
 }
 
-// 滚动到底部
-const scrollToBottom = () => {
-  if (chatContainer.value) {
-    chatContainer.value.scrollTop = chatContainer.value.scrollHeight
+// 是否为「等待终端」占位文案（用于在气泡上显示加载动画）
+const isLoadingPlaceholder = (content: string) =>
+  content === '[首次连接，等待终端加载...]' || content === '[正在链接终端...]'
+
+// 流式/静态消息解析：【】内为动作描写，方括号不显示，仅内容用 action 样式
+type ContentNode = { type: 'action' | 'text'; content: string }
+const parseActionNodes = (text: string): ContentNode[] => {
+  if (!text) return []
+  const nodes: ContentNode[] = []
+  let isAction = false
+  let currentBuffer = ''
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i]
+    if (char === '【') {
+      if (currentBuffer) {
+        nodes.push({ type: isAction ? 'action' : 'text', content: currentBuffer })
+        currentBuffer = ''
+      }
+      isAction = true
+      // 不把【加入 content
+    } else if (char === '】') {
+      nodes.push({ type: 'action', content: currentBuffer })
+      currentBuffer = ''
+      isAction = false
+      // 不把】加入 content
+    } else {
+      currentBuffer += char
+    }
   }
+  if (currentBuffer) {
+    nodes.push({ type: isAction ? 'action' : 'text', content: currentBuffer })
+  }
+  return nodes
+}
+
+const focusMainInput = () => {
+  mainInputRef.value?.focus()
+}
+
+// 判断一行是否以【开头，用于脱离气泡单独展示（流式友好：无需等】即可判定）
+const isStandaloneActionLine = (line: string): boolean => line.trimStart().startsWith('【')
+
+// 将消息内容拆成「单独成段动作」与「气泡内段落」；以【开头的行在】后强制分段，】后内容进气泡
+type MessageBlock = { type: 'standalone' | 'bubble'; content: string }
+const messageToBlocks = (content: string): MessageBlock[] => {
+  if (!content) return [{ type: 'bubble', content: '' }]
+  const lines = content.split('\n')
+  const blocks: MessageBlock[] = []
+  let bubbleBuffer = ''
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? ''
+    const trimmedStart = line.trimStart()
+    if (trimmedStart.startsWith('【')) {
+      if (bubbleBuffer) {
+        blocks.push({ type: 'bubble', content: bubbleBuffer })
+        bubbleBuffer = ''
+      }
+      const closeIdx = line.indexOf('】')
+      if (closeIdx >= 0) {
+        blocks.push({ type: 'standalone', content: line.slice(0, closeIdx + 1) })
+        const rest = line.slice(closeIdx + 1).trim()
+        if (rest) bubbleBuffer = rest
+      } else {
+        blocks.push({ type: 'standalone', content: line })
+      }
+    } else {
+      if (bubbleBuffer) bubbleBuffer += '\n' + line
+      else bubbleBuffer = line
+    }
+  }
+  if (bubbleBuffer) blocks.push({ type: 'bubble', content: bubbleBuffer })
+  return blocks.length ? blocks : [{ type: 'bubble', content: '' }]
+}
+
+// 滚动到底部：使用双 RAF 确保在浏览器完成新内容布局后再滚动，避免上移不足一屏
+const scrollToBottom = () => {
+  if (!chatContainer.value) return
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      if (chatContainer.value) {
+        chatContainer.value.scrollTop = chatContainer.value.scrollHeight
+      }
+    })
+  })
 }
 
 // 打开会话操作菜单
@@ -1219,6 +1436,52 @@ onUnmounted(() => {
 
 ::-webkit-scrollbar-thumb:hover {
   background: #00ff41;
+}
+
+/* 悬浮动作条：绝对定位在输入行上方，不占文档流、不顶高布局 */
+.action-strip {
+  bottom: 100%;
+  margin-bottom: 6px;
+  transition: opacity 0.2s ease;
+}
+.action-floating-input {
+  backdrop-filter: blur(6px);
+}
+/* 动作输入框展开/收起动画 */
+.action-input-enter-active,
+.action-input-leave-active {
+  transition: opacity 0.22s ease, transform 0.22s ease;
+}
+.action-input-enter-from,
+.action-input-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+/* 动作/心理/神态描写：灰色、斜体、略小，与对话区分；【】不显示，由 parseActionNodes 已剥离 */
+.message-action-text {
+  color: #888;
+  font-style: italic;
+  font-size: 0.9em;
+}
+/* 段落中间的动作与前后文字留出间距 */
+.message-action-inline {
+  margin-left: 0.55em;
+  margin-right: 0.55em;
+}
+/* NPC 气泡内的动作描写：保持与主题一致的低饱和度 */
+.message-action-text-npc {
+  color: #6ab7b7;
+}
+/* 单独成段的动作行：脱离气泡，偏左/偏右；z-index 高于气泡光晕，便于被光晕衬托 */
+.message-standalone-action {
+  color: #888;
+  font-style: italic;
+  font-size: 0.85em;
+  padding: 2px 0;
+}
+.message-standalone-action-npc {
+  color: #6ab7b7;
 }
 
 /* 好感度变化飘字动画 */
