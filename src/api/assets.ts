@@ -3,8 +3,8 @@ import request from '../utils/request'
 
 const API_BASE = ''
 
-/** 立绘导出接口超时（10 分钟）：从 SWF 导成立绘可能需数分钟 */
-const EXPORT_ILLUSTRATIONS_TIMEOUT = 10 * 60 * 1000
+/** 立绘导出接口超时（15 分钟）：从 SWF 导成立绘可能需数分钟 */
+const EXPORT_ILLUSTRATIONS_TIMEOUT = 10 * 90 * 1000
 
 // 缓存没有头像的NPC名称（本次页面启动期间有效）
 const invalidAvatarCache = new Set<string>()
@@ -64,7 +64,7 @@ export function isIllustrationValid(npcName: string, emotion: string): boolean {
 }
 
 /**
- * 获取NPC立绘URL
+ * 获取NPC立绘URL（后端立绘为 WebP 格式；头像仍为 PNG，见 getAvatarUrl）
  * 相对路径 /api/...，由前端所在端口代理到后端，同源以便 canvas 读像素算有效区域
  */
 export function getIllustrationUrl(npcName: string, emotion: string): string {

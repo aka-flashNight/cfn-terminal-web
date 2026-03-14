@@ -297,7 +297,7 @@
                 </button>
               </div>
               <p v-if="exportIllustrationsLoading" class="text-[#00ff41] text-xs font-mono mt-2">
-                正在准备立绘，请稍候（从 SWF 导出时约需数分钟）。
+                正在准备立绘，请稍候（从 SWF 导出时约需十数分钟）。
               </p>
               <div
                 v-else-if="exportIllustrationsMessage"
