@@ -167,18 +167,26 @@
             </button>
           </div>
 
-          <!-- NPC 立绘：作为整个聊天区域的背景，支持三种模式：全局居中 / 右侧对齐 / 右侧300区域居中 -->
+          <!-- NPC 立绘：算完边界后再显示，避免错位闪现；用已加载 img 算边界，不发起跨域请求 -->
           <div
             v-if="currentIllustrationUrl && !illustrationError"
-            class="absolute inset-0 pointer-events-none z-0 overflow-hidden"
+            class="absolute inset-0 pointer-events-none z-0 overflow-hidden transition-opacity duration-200"
+            :class="illustrationReady ? 'opacity-100' : 'opacity-0'"
           >
-            <img
-              :src="currentIllustrationUrl"
-              :alt="currentSessionNpc"
-              :class="illustrationImgClass"
-              :style="illustrationImgStyle"
-              @error="handleIllustrationError"
-            />
+            <div
+              ref="illustrationContainerRef"
+              class="absolute bottom-0 left-0 right-0 h-[600px] overflow-hidden"
+            >
+              <img
+                ref="illustrationImgRef"
+                :src="currentIllustrationUrl"
+                :alt="currentSessionNpc"
+                class="absolute top-0 opacity-90"
+                :style="illustrationImgStyle"
+                @load="onIllustrationLoad($event, currentIllustrationUrl)"
+                @error="handleIllustrationError"
+              />
+            </div>
             <!-- 从立绘左侧边界向左，逐渐加深遮罩；右侧区域在右侧模式下为 300px 不遮挡 -->
             <div
               class="absolute inset-y-0 left-0 pointer-events-none"
@@ -393,7 +401,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { usePlayerStore } from '../stores/player'
 import SettingsModal from '../components/SettingsModal.vue'
 import NewSessionModal from '../components/NewSessionModal.vue'
@@ -447,6 +455,29 @@ const favorChangeValue = ref(0)
 const chatContainer = ref<HTMLDivElement>()
 // 立绘布局模式：'global-center' 全局居中；'right-docked' 右侧对齐展开；'right-center' 右侧 300px 区域内居中（默认）
 const illustrationMode = ref<'global-center' | 'right-docked' | 'right-center'>('right-center')
+
+// SWF 导出立绘的源图与有效区域（4096×2304，有效区域约 (200,1600)..(3500,100)，底边 y=1600 对齐）
+const ILLUST_SOURCE_WIDTH = 4096
+const ILLUST_SOURCE_HEIGHT = 2304
+const ILLUST_CONTENT_TOP_Y = 100
+const ILLUST_CONTENT_BOTTOM_Y = 1600
+// 未正确算到非透明边界时使用的默认有效 X 范围（大部分立绘在 200–2300）
+const ILLUST_DEFAULT_BOUNDS = { left: 200, right: 2300, centerX: 1250 }
+const ILLUST_DISPLAY_HEIGHT = 600
+const ILLUST_SCALE = ILLUST_DISPLAY_HEIGHT / ILLUST_CONTENT_BOTTOM_Y // 0.375
+const ILLUST_DISPLAY_WIDTH = Math.round(ILLUST_SOURCE_WIDTH * ILLUST_SCALE)
+const ILLUST_SCALED_HEIGHT = Math.round(ILLUST_SOURCE_HEIGHT * ILLUST_SCALE)
+
+// 立绘内容在 X 方向上的边界（由非透明像素计算，在 y∈[0,1600] 内），用于居中和右对齐
+const illustrationContentBounds = ref<{ left: number; right: number; centerX: number } | null>(null)
+const illustrationBoundsCache = new Map<string, { left: number; right: number; centerX: number }>()
+const illustrationContainerRef = ref<HTMLDivElement | null>(null)
+const illustrationContainerWidth = ref(0)
+const illustrationImgRef = ref<HTMLImageElement | null>(null)
+// 立绘 img 实际渲染宽高（先按 y 缩到 600 后，若再被容器缩放则用于修正 centerPx/rightPx）
+const illustrationImgRenderedWidth = ref(0)
+// 等边界算完（或失败）后再显示立绘，避免错位闪现
+const illustrationReady = ref(false)
 
 // 记录头像加载失败的NPC（用于隐藏无头像的NPC）
 const npcsWithFailedAvatar = ref<Set<string>>(new Set())
@@ -527,36 +558,33 @@ const illustrationOverlayStyle = computed(() => {
   }
 })
 
-// 立绘图片在不同模式下的定位和 object-position
-const illustrationImgClass = computed(() => {
-  if (!currentIllustrationUrl.value || illustrationError.value) return ''
-  if (illustrationMode.value === 'global-center') {
-    // 整个聊天区域居中
-    return 'absolute bottom-0 left-1/2 -translate-x-1/2 w-auto max-h-[600px] max-w-none opacity-90'
-  }
-  if (illustrationMode.value === 'right-center') {
-    // 右侧 300px 区域内居中：水平位置由 style.left 控制，这里只负责底对齐和横向居中变换
-    return 'absolute bottom-0 w-auto max-h-[600px] max-w-none opacity-90 -translate-x-1/2'
-  }
-  // 右侧展开：沿右下角停靠，高度优先
-  return 'absolute bottom-0 right-0 w-auto max-h-[600px] max-w-none opacity-90'
-})
-
+// 立绘图片样式：y 方向按 1600→600 缩放，x 方向同比例；偏移按「实际渲染宽度/1536」再乘一遍，避免被容器二次缩放时错位
 const illustrationImgStyle = computed(() => {
   if (!currentIllustrationUrl.value || illustrationError.value) return {}
-  if (illustrationMode.value === 'right-docked') {
-    // 展开：展示立绘右侧
-    return { objectPosition: 'right bottom' }
+  const b = illustrationContentBounds.value
+  const centerX = b ? b.centerX : ILLUST_DEFAULT_BOUNDS.centerX
+  const contentRight = b ? b.right : ILLUST_DEFAULT_BOUNDS.right
+  const scale = ILLUST_SCALE
+  const nominalCenterPx = centerX * scale
+  const nominalRightPx = contentRight * scale
+  const renderedW = illustrationImgRenderedWidth.value
+  const ratio = renderedW > 0 ? renderedW / ILLUST_DISPLAY_WIDTH : 1
+  const centerPx = Math.round(nominalCenterPx * ratio)
+  const rightPx = Math.round(nominalRightPx * ratio)
+  let left: string
+  if (illustrationMode.value === 'global-center') {
+    left = `calc(50% - ${centerPx}px)`
+  } else if (illustrationMode.value === 'right-center') {
+    left = `calc(100% - 150px - ${centerPx}px)`
+  } else {
+    left = `calc(100% - ${rightPx}px)`
   }
-  if (illustrationMode.value === 'right-center') {
-    // 右侧 300px 区域内居中：将立绘中心对齐到距离右侧 150px 的位置
-    return {
-      objectPosition: 'center bottom',
-      left: 'calc(100% - 150px)'
-    }
+  return {
+    width: `${ILLUST_DISPLAY_WIDTH}px`,
+    height: `${ILLUST_SCALED_HEIGHT}px`,
+    top: '0',
+    left
   }
-  // 全局居中：展示立绘中心
-  return { objectPosition: 'center bottom' }
 })
 
 // 格式化时间
@@ -587,15 +615,125 @@ const handleAvatarError = (event: Event, npcName?: string) => {
 // 立绘加载失败处理
 const handleIllustrationError = () => {
   illustrationError.value = true
+  illustrationContentBounds.value = null
   // 标记当前 NPC+情绪 的立绘无效，避免本次页面生命周期内重复请求
   if (currentSessionNpc.value && currentEmotion.value) {
     markIllustrationInvalid(currentSessionNpc.value, currentEmotion.value)
   }
 }
 
+// 用已加载的立绘 img（不新建请求，避免 CORS）在 y∈[100,1600] 对应区域算 X 左右边界与中点，返回 4096 源图坐标
+function getIllustrationContentBounds(img: HTMLImageElement, imgSrc: string): Promise<{ left: number; right: number; centerX: number } | null> {
+  const cached = illustrationBoundsCache.get(imgSrc)
+  if (cached) return Promise.resolve(cached)
+
+  return new Promise((resolve) => {
+    try {
+      const sampleW = 2048
+      const sampleH = 1152
+      const canvas = document.createElement('canvas')
+      canvas.width = sampleW
+      canvas.height = sampleH
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        resolve(null)
+        return
+      }
+      ctx.drawImage(img, 0, 0, sampleW, sampleH)
+      const data = ctx.getImageData(0, 0, sampleW, sampleH).data
+      const alphaThreshold = 20
+      const contentTopSampleY = Math.floor((ILLUST_CONTENT_TOP_Y / ILLUST_SOURCE_HEIGHT) * sampleH)
+      const contentBottomSampleY = Math.floor((ILLUST_CONTENT_BOTTOM_Y / ILLUST_SOURCE_HEIGHT) * sampleH)
+      let left = sampleW
+      let right = 0
+      for (let y = contentTopSampleY; y <= contentBottomSampleY; y++) {
+        for (let x = 0; x < sampleW; x++) {
+          const a = data[(y * sampleW + x) * 4 + 3]
+          if (a && a > alphaThreshold) {
+            if (x < left) left = x
+            if (x > right) right = x
+          }
+        }
+      }
+      if (left > right) {
+        resolve(null)
+        return
+      }
+      const scaleToSource = ILLUST_SOURCE_WIDTH / sampleW
+      const result = {
+        left: Math.round(left * scaleToSource),
+        right: Math.round(right * scaleToSource),
+        centerX: Math.round((left + right) * 0.5 * scaleToSource)
+      }
+      illustrationBoundsCache.set(imgSrc, result)
+      resolve(result)
+    } catch {
+      resolve(null)
+    }
+  })
+}
+
+// 根据立绘 img 实际渲染宽度更新（y 缩到 600 后若再被容器缩放，需按此比例修正 centerPx/rightPx）
+function updateIllustrationImgRenderedSize() {
+  const el = illustrationImgRef.value
+  illustrationImgRenderedWidth.value = el ? Math.round(el.getBoundingClientRect().width) : 0
+}
+
+// 立绘图片加载成功：用当前 img 算边界（不发起新请求，避免 CORS），算完后再显示
+async function onIllustrationLoad(event: Event, imgSrc: string) {
+  const img = event.target as HTMLImageElement
+  if (!img || currentIllustrationUrl.value !== imgSrc) return
+  const bounds = await getIllustrationContentBounds(img, imgSrc)
+  if (bounds && currentIllustrationUrl.value === imgSrc) {
+    illustrationContentBounds.value = bounds
+  }
+  nextTick(() => updateIllustrationImgRenderedSize())
+  if (currentIllustrationUrl.value === imgSrc) {
+    illustrationReady.value = true
+  }
+}
+
 // 切换立绘布局模式
 const setIllustrationMode = (mode: 'global-center' | 'right-docked' | 'right-center') => {
   illustrationMode.value = mode
+}
+
+// 立绘 URL 变化时清空边界并隐藏，等新图 load 且边界算完后再显示
+watch(currentIllustrationUrl, (url) => {
+  if (!url) {
+    illustrationContentBounds.value = null
+    illustrationReady.value = false
+  } else {
+    illustrationReady.value = false
+  }
+})
+
+// 立绘容器出现时更新宽度并挂载 ResizeObserver；消失时断开
+watch(
+  () => !!(currentIllustrationUrl.value && !illustrationError.value),
+  (hasIllustration) => {
+    if (!hasIllustration) {
+      illustrationResizeObserver?.disconnect()
+      illustrationResizeObserver = null
+      return
+    }
+    nextTick(() => {
+      const el = illustrationContainerRef.value
+      if (el) {
+        illustrationContainerWidth.value = el.clientWidth
+        illustrationResizeObserver?.disconnect()
+        illustrationResizeObserver = new ResizeObserver(() => updateIllustrationContainerWidth())
+        illustrationResizeObserver.observe(el)
+      }
+    })
+  }
+)
+
+// 更新立绘容器宽度与立绘 img 实际渲染宽度（用于水平定位与偏移比例）
+function updateIllustrationContainerWidth() {
+  const el = illustrationContainerRef.value
+  illustrationContainerWidth.value = el ? el.clientWidth : 0
+  updateIllustrationImgRenderedSize()
 }
 
 // 加载会话列表（带重试机制）
@@ -921,14 +1059,20 @@ const confirmDelete = async () => {
 }
 
 // 应用加载时
-onMounted(() => {
-  // 加载会话列表
-  loadSessions()
+let illustrationResizeObserver: ResizeObserver | null = null
 
-  // 如果核心项目为空，自动弹出设置弹窗
+onMounted(() => {
+  loadSessions()
   if (!hasCoreSettings.value) {
     showSettings.value = true
   }
+  window.addEventListener('resize', updateIllustrationContainerWidth)
+})
+
+onUnmounted(() => {
+  illustrationResizeObserver?.disconnect()
+  illustrationResizeObserver = null
+  window.removeEventListener('resize', updateIllustrationContainerWidth)
 })
 </script>
 
