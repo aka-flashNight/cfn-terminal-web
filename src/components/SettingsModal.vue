@@ -272,11 +272,14 @@
             <div class="pt-4 border-t border-[#333333]">
               <h3 class="text-xs font-medium text-[#888888] mb-2 font-mono uppercase tracking-wider flex items-center gap-2">
                 <span class="w-4 h-[1px] bg-[#555555]"></span>
-                立绘管理
+                资源管理
                 <span class="w-4 h-[1px] bg-[#555555]"></span>
               </h3>
               <p class="text-[#555555] text-xs font-mono mb-3">
                 立绘来源：① 将 illustration.zip 与 exe 放在同一目录，程序会自动解压（速度较快）；② 无 zip 且有 Java 时，可从 SWF 导成立绘（需数分钟，对硬件有一定要求）。
+              </p>
+              <p class="text-[#555555] text-xs font-mono mb-3">
+                [提示] 请确保系统使用utf-8编码，否则解压的立绘名称可能乱码。生成完毕后请刷新页面。
               </p>
               <div class="flex flex-wrap gap-2 items-center">
                 <button
@@ -295,6 +298,14 @@
                 >
                   重新生成全部立绘
                 </button>
+                <button
+                  type="button"
+                  :disabled="resetKnowledgeBaseLoading"
+                  @click="runResetKnowledgeBase"
+                  class="px-4 py-2 bg-[#1a1a1a] hover:bg-[#252525] border border-[#444444] hover:border-[#00ff41] text-gray-400 hover:text-[#00ff41] text-sm font-medium rounded transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  重置知识库
+                </button>
               </div>
               <p v-if="exportIllustrationsLoading" class="text-[#00ff41] text-xs font-mono mt-2">
                 正在准备立绘，请稍候（从 SWF 导出时约需十数分钟）。
@@ -311,6 +322,26 @@
                 class="mt-2 p-2 rounded text-xs font-mono bg-[#ff0040]/10 border border-[#ff0040]/50 text-[#ff0040]"
               >
                 {{ exportIllustrationsError }}
+              </div>
+              <p v-if="resetKnowledgeBaseLoading" class="text-[#00ff41] text-xs font-mono mt-2">
+                正在重置知识库，请稍候…
+              </p>
+              <div
+                v-else-if="resetKnowledgeBaseMessage"
+                class="mt-2 p-2 rounded text-xs font-mono"
+                :class="resetKnowledgeBaseSuccess
+                  ? 'bg-[#00ff41]/10 border border-[#00ff41]/50 text-[#00ff41]'
+                  : resetKnowledgeBaseDocsIncomplete
+                    ? 'bg-amber-500/10 border border-amber-500/50 text-amber-400'
+                    : 'bg-[#ff0040]/10 border border-[#ff0040]/50 text-[#ff0040]'"
+              >
+                {{ resetKnowledgeBaseMessage }}
+              </div>
+              <div
+                v-else-if="resetKnowledgeBaseError"
+                class="mt-2 p-2 rounded text-xs font-mono bg-[#ff0040]/10 border border-[#ff0040]/50 text-[#ff0040]"
+              >
+                {{ resetKnowledgeBaseError }}
               </div>
             </div>
 
@@ -362,6 +393,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { usePlayerStore, Gender, Progress, inferApiBase, PROGRESS_TO_IDENTITY, COMMON_PLATFORMS, getPlatformByValue, inferPlatformFromApiBase } from '../stores/player'
 import { exportIllustrations } from '../api/assets'
+import { resetKnowledgeBase } from '../api/game'
 import type { AxiosError } from 'axios'
 
 type GenderType = typeof Gender[keyof typeof Gender]
@@ -395,6 +427,13 @@ const exportIllustrationsLoading = ref(false)
 const exportIllustrationsMessage = ref('')
 const exportIllustrationsSuccess = ref(false)
 const exportIllustrationsError = ref('')
+
+// 重置知识库状态（success === false 且 message 含「数据文档不全」时视为文档不全类错误，单独样式）
+const resetKnowledgeBaseLoading = ref(false)
+const resetKnowledgeBaseMessage = ref('')
+const resetKnowledgeBaseSuccess = ref(false)
+const resetKnowledgeBaseDocsIncomplete = ref(false)
+const resetKnowledgeBaseError = ref('')
 
 // 常见平台列表（排除默认的 empty 选项）
 const commonPlatforms = Object.values(COMMON_PLATFORMS)
@@ -467,6 +506,8 @@ const handleSave = () => {
 const runExportIllustrations = async (overwrite: boolean) => {
   exportIllustrationsError.value = ''
   exportIllustrationsMessage.value = ''
+  resetKnowledgeBaseMessage.value = ''
+  resetKnowledgeBaseError.value = ''
   exportIllustrationsLoading.value = true
   try {
     const data = await exportIllustrations(overwrite)
@@ -487,6 +528,37 @@ const runExportIllustrations = async (overwrite: boolean) => {
     }
   } finally {
     exportIllustrationsLoading.value = false
+  }
+}
+
+const DOCS_INCOMPLETE_MARKER = '数据文档不全'
+
+const runResetKnowledgeBase = async () => {
+  resetKnowledgeBaseError.value = ''
+  resetKnowledgeBaseMessage.value = ''
+  resetKnowledgeBaseDocsIncomplete.value = false
+  exportIllustrationsMessage.value = ''
+  exportIllustrationsError.value = ''
+  resetKnowledgeBaseLoading.value = true
+  try {
+    const data = await resetKnowledgeBase()
+    resetKnowledgeBaseSuccess.value = !!data.success
+    resetKnowledgeBaseDocsIncomplete.value = !data.success && !!data.message?.includes(DOCS_INCOMPLETE_MARKER)
+    resetKnowledgeBaseMessage.value = data.message ?? (data.success ? '知识库已重置并重新生成。' : '重置失败。')
+  } catch (err: unknown) {
+    const axiosErr = err as AxiosError<{ detail?: string; success?: boolean; message?: string }>
+    const body = axiosErr.response?.data
+    const msg = body?.message ?? body?.detail ?? axiosErr.message ?? '重置知识库失败，请稍后重试。'
+    const isDocsIncomplete = body?.success === false && typeof body?.message === 'string' && body.message.includes(DOCS_INCOMPLETE_MARKER)
+    if (isDocsIncomplete) {
+      resetKnowledgeBaseMessage.value = msg
+      resetKnowledgeBaseSuccess.value = false
+      resetKnowledgeBaseDocsIncomplete.value = true
+    } else {
+      resetKnowledgeBaseError.value = msg
+    }
+  } finally {
+    resetKnowledgeBaseLoading.value = false
   }
 }
 

@@ -43,6 +43,8 @@ export interface NPCChatRequest {
   query: string
   npc_name: string
   session_id: string
+  /** 当前情绪（上一轮或初始），供后端/AI 做连贯回复与情绪过渡 */
+  current_emotion?: string | null
   player_identity?: string | null
   api_key?: string | null
   api_base?: string | null
@@ -149,4 +151,22 @@ export function updateSessionTitle(
  */
 export function deleteSession(sessionId: string): Promise<void> {
   return request.delete(`/api/game/sessions/${sessionId}`).then(res => res.data)
+}
+
+/** 重置知识库响应（后端强制重新生成向量库） */
+export interface ResetKnowledgeBaseResponse {
+  success: boolean
+  message?: string
+}
+
+/**
+ * 重置知识库：强制后端重新生成向量库
+ *
+ * 后端接口说明：
+ * - 方法: POST
+ * - 路径: /api/game/knowledge-base/reset
+ * - 返回: ResetKnowledgeBaseResponse
+ */
+export function resetKnowledgeBase(): Promise<ResetKnowledgeBaseResponse> {
+  return request.post('/api/game/knowledge-base/reset').then(res => res.data)
 }

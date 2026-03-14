@@ -616,6 +616,8 @@ const illustrationImgStyle = computed(() => {
   return {
     width: `${ILLUST_DISPLAY_WIDTH}px`,
     height: `${ILLUST_SCALED_HEIGHT}px`,
+    minWidth: `${ILLUST_DISPLAY_WIDTH}px`,
+    maxWidth: 'none',
     top: '0',
     left,
     transform: `translate(${ox}px, ${oy}px)`
@@ -994,7 +996,7 @@ const sendChatMessage = async () => {
   scrollToBottom()
 
   try {
-    const response: NPCChatResponse = await sendMessage({
+    const payload: Parameters<typeof sendMessage>[0] = {
       query: message,
       npc_name: currentSessionNpc.value,
       session_id: currentSessionId.value,
@@ -1003,7 +1005,11 @@ const sendChatMessage = async () => {
       api_base: playerStore.api_base || null,
       model_name: playerStore.model_name || null,
       proxy_url: playerStore.proxy_url || null
-    })
+    }
+    if (currentEmotion.value?.trim()) {
+      payload.current_emotion = currentEmotion.value.trim()
+    }
+    const response: NPCChatResponse = await sendMessage(payload)
 
     // 添加 NPC 回复
     const npcMsg: ChatMessage = {
