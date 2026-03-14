@@ -197,7 +197,7 @@
           <!-- 可滚动的消息区域 -->
           <div
             ref="chatContainer"
-            class="absolute inset-0 overflow-y-auto p-4 space-y-4 z-10"
+            class="absolute inset-0 overflow-y-auto overflow-x-hidden p-4 space-y-4 z-10"
             :class="{ 'pr-[316px]': currentIllustrationUrl && !illustrationError && illustrationMode !== 'global-center' }"
           >
             <!-- 历史消息 -->
@@ -208,7 +208,7 @@
               :class="msg.role === 'user' ? 'justify-start' : 'justify-end'"
             >
               <!-- 玩家消息（左侧） -->
-              <div v-if="msg.role === 'user'" class="flex items-start gap-4 max-w-[70%]">
+              <div v-if="msg.role === 'user'" class="flex items-start gap-4" :class="chatBubbleMaxWidthClass">
                 <div class="w-10 h-10 rounded-full bg-[#00ff41]/20 border border-[#00ff41]/50 flex items-center justify-center flex-shrink-0">
                   <span class="text-[#00ff41] text-xs">你</span>
                 </div>
@@ -219,7 +219,7 @@
               </div>
 
               <!-- NPC消息（右侧） -->
-              <div v-else class="flex items-start gap-4 max-w-[70%]">
+              <div v-else class="flex items-start gap-4" :class="chatBubbleMaxWidthClass">
                 <!-- NPC 对话气泡的大范围暗色晕光：右侧（靠近立绘一侧）更黑，向左逐渐过渡到透明，整体比头像晕光更淡一些 -->
                 <div class="relative">
                   <div
@@ -544,6 +544,12 @@ const currentIllustrationUrl = computed(() => {
     return ''
   }
   return getIllustrationUrl(currentSessionNpc.value, currentEmotion.value)
+})
+
+// 无立绘或全局居中时缩小气泡最大宽度，避免负边距晕光导致横向滚动条
+const chatBubbleMaxWidthClass = computed(() => {
+  const noRightColumn = !currentIllustrationUrl.value || illustrationError.value || illustrationMode.value === 'global-center'
+  return noRightColumn ? 'max-w-[65%]' : 'max-w-[70%]'
 })
 
 // 立绘遮罩样式：根据布局模式决定是否为右侧预留 300px 不遮挡区域
