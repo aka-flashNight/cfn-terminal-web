@@ -1266,9 +1266,6 @@ const focusMainInput = () => {
   mainInputRef.value?.focus()
 }
 
-// 判断一行是否以【开头，用于脱离气泡单独展示（流式友好：无需等】即可判定）
-const isStandaloneActionLine = (line: string): boolean => line.trimStart().startsWith('【')
-
 // 将消息内容拆成「单独成段动作」与「气泡内段落」；以【开头的行在】后强制分段，】后内容进气泡
 type MessageBlock = { type: 'standalone' | 'bubble'; content: string }
 const messageToBlocks = (content: string): MessageBlock[] => {
