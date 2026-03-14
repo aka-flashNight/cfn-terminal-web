@@ -1,4 +1,5 @@
 import request from '../utils/request'
+import { BASE_URL } from '../utils/request'
 
 export interface Session {
   session_id: string
@@ -100,9 +101,94 @@ export function getSessionHistory(sessionId: string, limit: number = 50): Promis
   return request.get(`/api/game/history/${sessionId}`, { params: { limit } }).then(res => res.data)
 }
 
-// 发送消息
+// 发送消息（非流式）
 export function sendMessage(data: NPCChatRequest): Promise<NPCChatResponse> {
   return request.post('/api/game/ask', data).then(res => res.data)
+}
+
+/** 流式 ask 的回调：content 为打字机增量，done 为最终元数据，error 为错误或「回复未完成」 */
+export interface SendMessageStreamCallbacks {
+  onContent(delta: string): void
+  onDone(data: NPCChatResponse): void
+  onError(error: string): void
+}
+
+/**
+ * 流式发送消息：POST /ask?stream=true，按 SSE 解析 content / done / error，
+ * 通过回调推送 delta、最终 NPCChatResponse 或错误信息。
+ */
+export async function sendMessageStream(
+  data: NPCChatRequest,
+  callbacks: SendMessageStreamCallbacks
+): Promise<void> {
+  const url = `${BASE_URL || ''}/api/game/ask?stream=true`
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  })
+
+  if (!response.ok) {
+    const text = await response.text()
+    callbacks.onError(text || `请求失败 ${response.status}`)
+    return
+  }
+
+  const reader = response.body?.getReader()
+  if (!reader) {
+    callbacks.onError('无法读取响应流')
+    return
+  }
+
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let doneReceived = false
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const parts = buffer.split('\n\n')
+      buffer = parts.pop() ?? ''
+
+      for (const raw of parts) {
+        let eventType = ''
+        let dataLine = ''
+        for (const line of raw.split('\n')) {
+          if (line.startsWith('event:')) {
+            eventType = line.slice(6).trim()
+          } else if (line.startsWith('data:')) {
+            dataLine = line.slice(5).trim()
+          }
+        }
+        if (!dataLine) continue
+
+        try {
+          const data = JSON.parse(dataLine) as Record<string, unknown>
+          if (eventType === 'content') {
+            const delta = typeof data.delta === 'string' ? data.delta : ''
+            if (delta) callbacks.onContent(delta)
+          } else if (eventType === 'done') {
+            doneReceived = true
+            callbacks.onDone(data as unknown as NPCChatResponse)
+          } else if (eventType === 'error') {
+            const err = typeof data.error === 'string' ? data.error : '未知错误'
+            callbacks.onError(err)
+            return
+          }
+        } catch (_) {
+          // 忽略单条解析失败
+        }
+      }
+    }
+
+    if (!doneReceived) {
+      callbacks.onError('回复未完成')
+    }
+  } finally {
+    reader.releaseLock()
+  }
 }
 
 /**

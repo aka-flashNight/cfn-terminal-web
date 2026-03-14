@@ -276,8 +276,8 @@
               </div>
             </div>
 
-            <!-- Loading 状态 -->
-            <div v-if="isLoading" class="flex justify-end items-center gap-3">
+            <!-- Loading 状态：仅当「最后一条不是助手消息」时显示，避免与占位 NPC 消息重复成两条 -->
+            <div v-if="isLoading && (chatMessages.length === 0 || chatMessages[chatMessages.length - 1]?.role !== 'assistant')" class="flex justify-end items-center gap-3">
               <div class="bg-[#111111] border border-[#00ffff]/30 rounded-lg p-3">
                 <p class="text-[#555555] text-sm animate-pulse">
                   {{ isFirstMessage ? '[首次连接，等待终端加载...]' : '[正在链接终端...]' }}
@@ -438,7 +438,7 @@ import {
   getSessions,
   createSession,
   getSessionHistory,
-  sendMessage,
+  sendMessageStream,
   getNPCFavorability,
   updateSessionTitle,
   deleteSession,
@@ -995,8 +995,19 @@ const sendChatMessage = async () => {
   await nextTick()
   scrollToBottom()
 
+  // 一条占位 NPC 消息，先显示「正在链接终端...」，收到首段流式内容后在同一条里做打字机
+  const placeholderText = isFirstMessage.value ? '[首次连接，等待终端加载...]' : '[正在链接终端...]'
+  const npcMsg: ChatMessage = {
+    id: Date.now() + 1,
+    role: 'assistant',
+    content: placeholderText,
+    timestamp: Math.floor(Date.now() / 1000)
+  }
+  chatMessages.value.push(npcMsg)
+  const npcMsgIndex = chatMessages.value.length - 1
+
   try {
-    const payload: Parameters<typeof sendMessage>[0] = {
+    const payload: Parameters<typeof sendMessageStream>[0] = {
       query: message,
       npc_name: currentSessionNpc.value,
       session_id: currentSessionId.value,
@@ -1009,50 +1020,57 @@ const sendChatMessage = async () => {
     if (currentEmotion.value?.trim()) {
       payload.current_emotion = currentEmotion.value.trim()
     }
-    const response: NPCChatResponse = await sendMessage(payload)
 
-    // 添加 NPC 回复
-    const npcMsg: ChatMessage = {
-      id: Date.now() + 1,
-      role: 'assistant',
-      content: response.reply,
-      timestamp: Math.floor(Date.now() / 1000)
-    }
-    chatMessages.value.push(npcMsg)
-
-    // 更新好感度和关系
-    const prevFavor = favorability.value
-    favorability.value = response.favorability
-    relationshipLevel.value = response.relationship_level
-
-    // 显示好感度变化动画
-    if (prevFavor !== null && response.favorability_change !== 0) {
-      favorChangeValue.value = response.favorability_change
-      showFavorChange.value = true
-      setTimeout(() => {
-        showFavorChange.value = false
-      }, 2000)
-    }
-
-    // 更新情绪（切换立绘），并在情绪变化时重置错误标记
-    currentEmotion.value = response.emotion
-    illustrationError.value = false
-
-    isFirstMessage.value = false
-
-    // 滚动到底部
-    await nextTick()
-    scrollToBottom()
+    await sendMessageStream(payload, {
+      onContent(delta) {
+        const msg = chatMessages.value[npcMsgIndex]
+        if (!msg) return
+        // 第一次收到内容时用 delta 替换占位符，之后追加（打字机）
+        if (msg.content === placeholderText) {
+          msg.content = delta
+        } else {
+          msg.content += delta
+        }
+        nextTick().then(scrollToBottom)
+      },
+      onDone(data) {
+        const msg = chatMessages.value[npcMsgIndex]
+        if (msg) msg.content = data.reply
+        const prevFavor = favorability.value
+        favorability.value = data.favorability
+        relationshipLevel.value = data.relationship_level
+        if (prevFavor !== null && data.favorability_change !== 0) {
+          favorChangeValue.value = data.favorability_change
+          showFavorChange.value = true
+          setTimeout(() => {
+            showFavorChange.value = false
+          }, 2000)
+        }
+        currentEmotion.value = data.emotion
+        illustrationError.value = false
+        isFirstMessage.value = false
+        nextTick().then(scrollToBottom)
+      },
+      onError(error) {
+        const msg = chatMessages.value[npcMsgIndex]
+        if (msg) msg.content = `[系统] ${error}`
+        nextTick().then(scrollToBottom)
+      }
+    })
   } catch (error) {
     console.error('Failed to send message:', error)
-    // 添加错误提示
-    const errorMsg: ChatMessage = {
-      id: Date.now() + 2,
-      role: 'assistant',
-      content: '[系统] 连接终端失败，请检查网络或API配置',
-      timestamp: Math.floor(Date.now() / 1000)
+    const msg = chatMessages.value[npcMsgIndex]
+    if (msg) {
+      msg.content = '[系统] 连接终端失败，请检查网络或API配置'
+    } else {
+      chatMessages.value.push({
+        id: Date.now() + 2,
+        role: 'assistant',
+        content: '[系统] 连接终端失败，请检查网络或API配置',
+        timestamp: Math.floor(Date.now() / 1000)
+      })
     }
-    chatMessages.value.push(errorMsg)
+    nextTick().then(scrollToBottom)
   } finally {
     isLoading.value = false
   }
