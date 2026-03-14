@@ -384,7 +384,7 @@
           <!-- 悬浮动作条：绝对定位在输入框上方，不占文档流 -->
           <div
             class="action-strip absolute left-4 z-20 flex items-center gap-2 transition-[width] duration-200"
-            :class="actionInputExpanded ? 'w-[88%] max-w-[560px]' : ''"
+            :class="actionInputExpanded ? 'w-[95%] max-w-[730px]' : ''"
           >
             <button
               type="button"
@@ -406,27 +406,40 @@
               </svg>
             </button>
             <Transition name="action-input">
-              <input
-                v-show="actionInputExpanded"
-                v-model="actionInput"
-                type="text"
-                placeholder="输入动作..."
-                class="action-floating-input flex-1 min-w-0 bg-[#0f0f0f]/95 text-[#888888] border border-[#2a2a2a] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#00ff41]/50 placeholder-[#444444] shadow-lg"
-                :disabled="isLoading"
-                @keyup.enter="focusMainInput"
-              />
+              <div v-show="actionInputExpanded" class="flex-1 min-w-0 relative flex items-center">
+                <input
+                  v-model="actionInput"
+                  type="text"
+                  placeholder="输入动作..."
+                  maxlength="250"
+                  class="action-floating-input w-full pr-[3.9rem] bg-[#0f0f0f]/95 text-[#888888] border border-[#2a2a2a] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#00ff41]/50 placeholder-[#444444] shadow-lg"
+                  :disabled="isLoading"
+                  @keyup.enter="focusMainInput"
+                />
+                <span
+                  v-show="actionInput.length >= 150"
+                  class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#555555] pointer-events-none tabular-nums"
+                >{{ actionInput.length }}/250</span>
+              </div>
             </Transition>
           </div>
-          <div class="flex gap-3">
-            <input
-              ref="mainInputRef"
-              v-model="inputMessage"
-              type="text"
-              placeholder="输入消息..."
-              class="flex-1 bg-[#1a1a1a] text-[#00ff41] border border-[#333333] rounded-lg px-4 py-3 focus:outline-none focus:border-[#00ff41] focus:shadow-[0_0_10px_rgba(0,255,65,0.2)] transition-all placeholder-[#444444]"
-              :disabled="isLoading"
-              @keyup.enter="sendChatMessage"
-            />
+          <div class="flex gap-3 items-center">
+            <div class="flex-1 min-w-0 relative">
+              <input
+                ref="mainInputRef"
+                v-model="inputMessage"
+                type="text"
+                placeholder="输入消息..."
+                maxlength="500"
+                class="w-full bg-[#1a1a1a] text-[#00ff41] border border-[#333333] rounded-lg pl-4 pr-[4.2rem] py-3 focus:outline-none focus:border-[#00ff41] focus:shadow-[0_0_10px_rgba(0,255,65,0.2)] transition-all placeholder-[#444444]"
+                :disabled="isLoading"
+                @keyup.enter="sendChatMessage"
+              />
+              <span
+                v-show="inputMessage.length >= 300"
+                class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#555555] pointer-events-none tabular-nums"
+              >{{ inputMessage.length }}/500</span>
+            </div>
             <button
               @click="sendChatMessage"
               :disabled="!inputMessage.trim() || isLoading"
