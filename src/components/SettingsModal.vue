@@ -578,7 +578,7 @@ const runExportIllustrations = async (overwrite: boolean) => {
     if (axiosErr.response?.status === 503 && axiosErr.response?.data?.detail) {
       exportIllustrationsError.value = axiosErr.response.data.detail
     } else if (axiosErr.code === 'ECONNABORTED' || axiosErr.message?.includes('timeout')) {
-      exportIllustrationsError.value = '请求超时（10 分钟）。从 SWF 导成立绘可能耗时较长，请确认后端仍在处理或稍后重试。'
+      exportIllustrationsError.value = '请求超时（15 分钟）。从 SWF 导成立绘可能耗时较长，请确认后端仍在处理或稍后重试。'
     } else {
       exportIllustrationsError.value = axiosErr.response?.data?.detail ?? axiosErr.message ?? '立绘导出失败，请稍后重试。'
     }
