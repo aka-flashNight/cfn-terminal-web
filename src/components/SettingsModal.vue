@@ -319,6 +319,9 @@
               <p class="text-[#555555] text-xs font-mono mb-3">
                 [提示] 请确保系统使用utf-8编码，否则解压的立绘名称可能乱码。生成完毕后请刷新页面。
               </p>
+              <p class="text-[#555555] text-xs font-mono mb-3">
+                [提示] 重置知识库需消耗数分钟，且对设备硬件占用率较高，非特殊情况下无需重置。
+              </p>
               <div class="flex flex-wrap gap-2 items-center">
                 <button
                   type="button"
