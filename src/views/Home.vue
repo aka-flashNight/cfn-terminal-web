@@ -1087,7 +1087,7 @@ const selectSession = async (sessionId: string) => {
     const first = raw.length > 0 ? raw[0] : undefined
     const last = raw.length > 0 ? raw[raw.length - 1] : undefined
     const firstBatch =
-      first != null && last != null && first.timestamp > last.timestamp
+      first != null && last != null && first.timestamp >= last.timestamp
         ? raw.slice().reverse()
         : raw.slice()
     chatMessages.value = firstBatch
@@ -1128,7 +1128,7 @@ const loadMoreHistory = async () => {
     const firstOlder = rawOlder.length > 0 ? rawOlder[0] : undefined
     const lastOlder = rawOlder.length > 0 ? rawOlder[rawOlder.length - 1] : undefined
     const olderBatch =
-      firstOlder != null && lastOlder != null && firstOlder.timestamp > lastOlder.timestamp
+      firstOlder != null && lastOlder != null && firstOlder.timestamp >= lastOlder.timestamp
         ? rawOlder.slice().reverse()
         : rawOlder.slice()
     if (olderBatch.length === 0) {
