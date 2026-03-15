@@ -51,6 +51,8 @@ export interface NPCChatRequest {
   api_base?: string | null
   model_name?: string | null
   proxy_url?: string | null
+  /** 精确短期记忆长度档位：10/30/100/500，对应后端 SUMMARIZE_INTERVAL */
+  summarize_interval?: number | null
 }
 
 // 发送消息响应
@@ -96,9 +98,16 @@ export function createSession(data: CreateSessionRequest): Promise<CreateSession
   return request.post('/api/game/sessions', data).then(res => res.data)
 }
 
-// 获取会话历史记录
-export function getSessionHistory(sessionId: string, limit: number = 50): Promise<SessionHistoryResponse> {
-  return request.get(`/api/game/history/${sessionId}`, { params: { limit } }).then(res => res.data)
+// 获取会话历史记录（后端按时间倒序返回，即 messages[0] 为最新）
+// offset: 跳过条数，用于分页；0 表示从最新开始取 limit 条，50 表示跳过最新 50 条再取 limit 条（更早的消息）
+export function getSessionHistory(
+  sessionId: string,
+  limit: number = 50,
+  offset?: number
+): Promise<SessionHistoryResponse> {
+  const params: { limit: number; offset?: number } = { limit }
+  if (offset !== undefined && offset > 0) params.offset = offset
+  return request.get(`/api/game/history/${sessionId}`, { params }).then(res => res.data)
 }
 
 // 发送消息（非流式）

@@ -202,6 +202,8 @@ export const usePlayerStore = defineStore('player', () => {
   const api_base = ref<string>('')
   const model_name = ref<string>('')
   const proxy_url = ref<string>('') // 代理服务器地址
+  /** 历史记录长度档位：10=短 30=中 100=长 500=几乎无限，对应 ask 的 summarize_interval，history 的 limit = 此值 * 5 */
+  const summarize_interval = ref<number>(30)
   const hasConfigured = ref<boolean>(false) // 标记用户是否已保存过配置
   const remember_api_key = ref<boolean>(true) // 默认记住 API Key
 
@@ -239,6 +241,7 @@ export const usePlayerStore = defineStore('player', () => {
       api_base: api_base.value,
       model_name: model_name.value,
       proxy_url: proxy_url.value,
+      summarize_interval: summarize_interval.value,
       hasConfigured: true,
       remember_api_key: remember_api_key.value
     }
@@ -267,6 +270,9 @@ export const usePlayerStore = defineStore('player', () => {
         api_base.value = data.api_base || ''
         model_name.value = data.model_name || ''
         proxy_url.value = data.proxy_url || ''
+        summarize_interval.value = [10, 30, 100, 500].includes(Number(data.summarize_interval))
+          ? Number(data.summarize_interval)
+          : 30
         hasConfigured.value = data.hasConfigured || false
         remember_api_key.value = data.remember_api_key !== false // 默认为 true
       } catch (error) {
@@ -307,6 +313,7 @@ export const usePlayerStore = defineStore('player', () => {
     api_base,
     model_name,
     proxy_url,
+    summarize_interval,
     hasConfigured,
     remember_api_key,
 

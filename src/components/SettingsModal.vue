@@ -106,12 +106,12 @@
               <input
                 v-model="formData.bio"
                 type="text"
-                maxlength="20"
-                placeholder="可不填，上限 20 字"
+                maxlength="30"
+                placeholder="可不填，上限 30 字"
                 class="w-full bg-[#111111] text-[#00ffff] border border-[#333333] rounded px-3 py-2 focus:outline-none focus:border-[#00ffff] focus:shadow-[0_0_10px_rgba(0,255,255,0.2)] transition-all placeholder-[#444444]"
               />
               <div class="text-right text-xs text-[#555555] mt-1">
-                {{ formData.bio.length }}/20
+                {{ formData.bio.length }}/30
               </div>
             </div>
 
@@ -268,6 +268,44 @@
               </p>
             </div>
 
+            <!-- 历史记录长度 -->
+            <div>
+              <label class="block text-sm font-medium mb-2 text-[#00ff41] font-mono">
+                > 历史记录长度/精确短期记忆长度
+              </label>
+              <div class="relative">
+                <input
+                  :value="summarizeIntervalIndex"
+                  type="range"
+                  min="0"
+                  max="3"
+                  step="1"
+                  class="w-full h-2 bg-[#222222] rounded-lg appearance-none cursor-pointer accent-[#00ff41]"
+                  @input="onSummarizeIntervalInput"
+                />
+                <!-- 当前档位文字严格跟随滑条圆点：轨道两端比容器略窄，用内缩比例对齐 -->
+                <div class="relative h-5 mt-1">
+                  <span
+                    class="absolute text-xs font-mono text-[#00ff41] whitespace-nowrap -translate-x-1/2"
+                    :style="{ left:  0.5 * trackInsetPercent + (summarizeIntervalIndex / 3) * (100 - 1 * trackInsetPercent) + '%' }"
+                  >
+                    {{ ['短', '中', '长', '几乎无限'][summarizeIntervalIndex] }}
+                  </span>
+                </div>
+              </div>
+              <div class="mt-2 p-2 rounded bg-[#555555]/10 border border-[#555555]/30">
+                <p class="text-[#888888] text-xs font-mono leading-relaxed">
+                  [提示] 角色已具有单个会话内容的永久模糊记忆功能，此处调整的仅为精确的短期记忆长度。
+                </p>
+                <p class="text-[#888888] text-xs font-mono leading-relaxed mt-1">
+                  [注意] 更长的历史长度更加考验模型自身上下文能力，并要求模型具有对应的上下文窗口。
+                </p>
+                <p class="text-[#888888] text-xs font-mono leading-relaxed mt-1">
+                  [注意] 更长的历史长度将导致 token 消耗上升。请根据实际情况选择。
+                </p>
+              </div>
+            </div>
+
             <!-- 立绘管理 -->
             <div class="pt-4 border-t border-[#333333]">
               <h3 class="text-xs font-medium text-[#888888] mb-2 font-mono uppercase tracking-wider flex items-center gap-2">
@@ -409,6 +447,11 @@ const emit = defineEmits<{
 
 const playerStore = usePlayerStore()
 
+/** 历史记录长度档位：短/中/长/几乎无限 → 10/30/100/500 */
+const SUMMARY_INTERVAL_OPTIONS = [10, 30, 100, 500] as const
+/** 滑条轨道相对容器左右内缩比例（约 3% 时文字与圆点对齐更好） */
+const trackInsetPercent = 3
+
 const formData = ref({
   gender: playerStore.gender as GenderType,
   progress: playerStore.progress as ProgressType,
@@ -417,8 +460,20 @@ const formData = ref({
   api_base: playerStore.api_base,
   model_name: playerStore.model_name,
   proxy_url: playerStore.proxy_url,
-  remember_api_key: playerStore.remember_api_key
+  remember_api_key: playerStore.remember_api_key,
+  summarize_interval: playerStore.summarize_interval
 })
+
+const summarizeIntervalIndex = computed(() => {
+  const idx = SUMMARY_INTERVAL_OPTIONS.indexOf(formData.value.summarize_interval as 10 | 30 | 100 | 500)
+  return idx >= 0 ? idx : 1
+})
+
+const onSummarizeIntervalInput = (e: Event) => {
+  const target = e.target as HTMLInputElement
+  const idx = Math.max(0, Math.min(3, parseInt(target.value, 10) || 0))
+  formData.value.summarize_interval = SUMMARY_INTERVAL_OPTIONS[idx] ?? 30
+}
 
 const isFirstLoad = ref(false)
 
@@ -494,6 +549,7 @@ const handleSave = () => {
   playerStore.model_name = formData.value.model_name
   playerStore.proxy_url = formData.value.proxy_url
   playerStore.remember_api_key = formData.value.remember_api_key
+  playerStore.summarize_interval = formData.value.summarize_interval
 
   // 保存到 localStorage
   playerStore.saveToLocalStorage()

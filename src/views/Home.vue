@@ -217,7 +217,23 @@
             ref="chatContainer"
             class="absolute inset-0 overflow-y-auto overflow-x-hidden p-4 space-y-4 z-10"
             :class="{ 'pr-[316px]': currentIllustrationUrl && !illustrationError && illustrationMode !== 'global-center' }"
+            @scroll="onChatScroll"
           >
+            <!-- 顶部：加载更早消息 -->
+            <div
+              v-if="hasMoreHistory || loadingMoreHistory"
+              class="flex justify-center py-2"
+            >
+              <button
+                v-if="!loadingMoreHistory"
+                type="button"
+                class="text-xs font-mono text-[#00ff41]/80 hover:text-[#00ff41] border border-[#00ff41]/40 hover:border-[#00ff41]/60 rounded px-3 py-1.5 transition-colors"
+                @click="loadMoreHistory"
+              >
+                加载更早消息
+              </button>
+              <span v-else class="text-xs font-mono text-[#555555] animate-pulse">正在加载更早消息…</span>
+            </div>
             <!-- 历史消息：按块渲染，单独成段的【】脱离气泡偏左/偏右 -->
             <div
               v-for="msg in chatMessages"
@@ -599,6 +615,12 @@ const loadingSessions = ref(false)
 const showNewSessionModal = ref(false)
 const selectedNpc = ref('')
 const creatingSession = ref(false)
+
+// 历史记录分页懒加载：每页条数、已加载偏移、是否还有更早、是否正在加载更早
+const HISTORY_PAGE_SIZE = 50
+const historyOffset = ref(0)
+const hasMoreHistory = ref(false)
+const loadingMoreHistory = ref(false)
 
 // 聊天相关状态
 const chatMessages = ref<ChatMessage[]>([])
@@ -1051,14 +1073,28 @@ const selectSession = async (sessionId: string) => {
   // 获取当前会话信息
   const session = sessions.value.find(s => s.session_id === sessionId)
 
-  // 加载历史记录和NPC好感度（并行）
+  // 加载历史记录（首页）和NPC好感度（并行）
+  historyOffset.value = 0
+  hasMoreHistory.value = false
+  loadingMoreHistory.value = false
+  const totalHistoryLimit = playerStore.summarize_interval * 5
+  const firstPageSize = Math.min(HISTORY_PAGE_SIZE, totalHistoryLimit)
   try {
     const [history, favorabilityData] = await Promise.all([
-      getSessionHistory(sessionId),
+      getSessionHistory(sessionId, firstPageSize, 0),
       session ? getNPCFavorability(session.npc_name) : Promise.resolve(null)
     ])
-
-    chatMessages.value = history.messages
+    // 后端若返回时间正序（最早在前），直接使用；若返回倒序（最新在前），需 reverse。此处按正序展示（最早在上、最新在下）
+    const raw = history.messages || []
+    const first = raw.length > 0 ? raw[0] : undefined
+    const last = raw.length > 0 ? raw[raw.length - 1] : undefined
+    const firstBatch =
+      first != null && last != null && first.timestamp > last.timestamp
+        ? raw.slice().reverse()
+        : raw.slice()
+    chatMessages.value = firstBatch
+    historyOffset.value = firstBatch.length
+    hasMoreHistory.value = firstBatch.length >= firstPageSize && historyOffset.value < totalHistoryLimit
     if (history.messages.length > 0) {
       isFirstMessage.value = false
     }
@@ -1069,12 +1105,77 @@ const selectSession = async (sessionId: string) => {
       relationshipLevel.value = favorabilityData.relationship_level
     }
 
-    // 滚动到底部
+    // 滚动到底部：等多帧布局完成后再滚，避免长列表未渲染完时 scrollHeight 不准
     await nextTick()
     scrollToBottom()
+    if (firstBatch.length > 10) {
+      setTimeout(scrollToBottom, 80)
+    }
   } catch (error) {
     console.error('Failed to load session data:', error)
   }
+}
+
+// 加载更早的历史消息（滚动到顶时调用）
+const loadMoreHistory = async () => {
+  if (!currentSessionId.value || loadingMoreHistory.value || !hasMoreHistory.value) return
+  const totalLimit = playerStore.summarize_interval * 5
+  const nextOffset = historyOffset.value
+  if (nextOffset >= totalLimit) {
+    hasMoreHistory.value = false
+    return
+  }
+  const pageSize = Math.min(HISTORY_PAGE_SIZE, totalLimit - nextOffset)
+  loadingMoreHistory.value = true
+  const container = chatContainer.value
+  const oldScrollHeight = container?.scrollHeight ?? 0
+  const oldScrollTop = container?.scrollTop ?? 0
+  try {
+    const history = await getSessionHistory(currentSessionId.value, pageSize, nextOffset)
+    const rawOlder = history.messages || []
+    const firstOlder = rawOlder.length > 0 ? rawOlder[0] : undefined
+    const lastOlder = rawOlder.length > 0 ? rawOlder[rawOlder.length - 1] : undefined
+    const olderBatch =
+      firstOlder != null && lastOlder != null && firstOlder.timestamp > lastOlder.timestamp
+        ? rawOlder.slice().reverse()
+        : rawOlder.slice()
+    if (olderBatch.length === 0) {
+      hasMoreHistory.value = false
+      return
+    }
+    const currentOldestId = chatMessages.value[0]?.id
+    const newOldestId = olderBatch[0]?.id
+    if (currentOldestId !== undefined && newOldestId === currentOldestId) {
+      hasMoreHistory.value = false
+      return
+    }
+    chatMessages.value = [...olderBatch, ...chatMessages.value]
+    historyOffset.value += olderBatch.length
+    if (olderBatch.length < pageSize || historyOffset.value >= totalLimit) {
+      hasMoreHistory.value = false
+    }
+    await nextTick()
+    if (container) {
+      const newScrollHeight = container.scrollHeight
+      container.scrollTop = oldScrollTop + (newScrollHeight - oldScrollHeight)
+    }
+  } finally {
+    loadingMoreHistory.value = false
+  }
+}
+
+// 滚动到顶时触发加载更早消息（节流）
+let scrollLoadMoreScheduled = false
+const SCROLL_LOAD_MORE_THRESHOLD = 120
+const onChatScroll = () => {
+  const el = chatContainer.value
+  if (!el || !hasMoreHistory.value || loadingMoreHistory.value) return
+  if (scrollLoadMoreScheduled) return
+  if (el.scrollTop > SCROLL_LOAD_MORE_THRESHOLD) return
+  scrollLoadMoreScheduled = true
+  loadMoreHistory().finally(() => {
+    scrollLoadMoreScheduled = false
+  })
 }
 
 // 退出会话
@@ -1085,6 +1186,9 @@ const exitSession = () => {
   relationshipLevel.value = ''
   currentEmotion.value = '普通'
   illustrationError.value = false
+  historyOffset.value = 0
+  hasMoreHistory.value = false
+  loadingMoreHistory.value = false
 }
 
 // 打开新建会话弹窗
@@ -1162,7 +1266,8 @@ const sendChatMessage = async () => {
       api_key: playerStore.api_key || null,
       api_base: playerStore.api_base || null,
       model_name: playerStore.model_name || null,
-      proxy_url: playerStore.proxy_url || null
+      proxy_url: playerStore.proxy_url || null,
+      summarize_interval: playerStore.summarize_interval ?? null
     }
     if (currentEmotion.value?.trim()) {
       payload.current_emotion = currentEmotion.value.trim()
