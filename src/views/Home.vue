@@ -1077,11 +1077,9 @@ const selectSession = async (sessionId: string) => {
   historyOffset.value = 0
   hasMoreHistory.value = false
   loadingMoreHistory.value = false
-  const totalHistoryLimit = playerStore.summarize_interval * 5
-  const firstPageSize = Math.min(HISTORY_PAGE_SIZE, totalHistoryLimit)
   try {
     const [history, favorabilityData] = await Promise.all([
-      getSessionHistory(sessionId, firstPageSize, 0),
+      getSessionHistory(sessionId, HISTORY_PAGE_SIZE, 0),
       session ? getNPCFavorability(session.npc_name) : Promise.resolve(null)
     ])
     // 后端若返回时间正序（最早在前），直接使用；若返回倒序（最新在前），需 reverse。此处按正序展示（最早在上、最新在下）
@@ -1094,7 +1092,7 @@ const selectSession = async (sessionId: string) => {
         : raw.slice()
     chatMessages.value = firstBatch
     historyOffset.value = firstBatch.length
-    hasMoreHistory.value = firstBatch.length >= firstPageSize && historyOffset.value < totalHistoryLimit
+    hasMoreHistory.value = firstBatch.length >= HISTORY_PAGE_SIZE
     if (history.messages.length > 0) {
       isFirstMessage.value = false
     }
@@ -1116,22 +1114,16 @@ const selectSession = async (sessionId: string) => {
   }
 }
 
-// 加载更早的历史消息（滚动到顶时调用）
+// 加载更早的历史消息（滚动到顶时调用，不设总条数上限，由后端返回不足一页时结束）
 const loadMoreHistory = async () => {
   if (!currentSessionId.value || loadingMoreHistory.value || !hasMoreHistory.value) return
-  const totalLimit = playerStore.summarize_interval * 5
   const nextOffset = historyOffset.value
-  if (nextOffset >= totalLimit) {
-    hasMoreHistory.value = false
-    return
-  }
-  const pageSize = Math.min(HISTORY_PAGE_SIZE, totalLimit - nextOffset)
   loadingMoreHistory.value = true
   const container = chatContainer.value
   const oldScrollHeight = container?.scrollHeight ?? 0
   const oldScrollTop = container?.scrollTop ?? 0
   try {
-    const history = await getSessionHistory(currentSessionId.value, pageSize, nextOffset)
+    const history = await getSessionHistory(currentSessionId.value, HISTORY_PAGE_SIZE, nextOffset)
     const rawOlder = history.messages || []
     const firstOlder = rawOlder.length > 0 ? rawOlder[0] : undefined
     const lastOlder = rawOlder.length > 0 ? rawOlder[rawOlder.length - 1] : undefined
@@ -1151,7 +1143,7 @@ const loadMoreHistory = async () => {
     }
     chatMessages.value = [...olderBatch, ...chatMessages.value]
     historyOffset.value += olderBatch.length
-    if (olderBatch.length < pageSize || historyOffset.value >= totalLimit) {
+    if (olderBatch.length < HISTORY_PAGE_SIZE) {
       hasMoreHistory.value = false
     }
     await nextTick()
