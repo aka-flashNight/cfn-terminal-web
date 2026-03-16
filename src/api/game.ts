@@ -8,9 +8,15 @@ export interface Session {
   created_at: number
 }
 
+/** GET /sessions 返回的 NPC 候选项 */
+export interface NpcCandidateItem {
+  npc_name: string
+  faction: string | null
+}
+
 export interface SessionsResponse {
   sessions: Session[]
-  npc_candidates: string[]
+  npc_candidates: NpcCandidateItem[]
 }
 
 export interface CreateSessionRequest {

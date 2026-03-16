@@ -42,43 +42,91 @@
         [WARNING] 暂无可用通讯人员
       </div>
 
-      <!-- 头像大小改为 150px，每行显示更多 -->
-      <div v-else class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-4">
-        <!-- 直接遍历 validNpcCandidates，不需要再过滤 -->
-        <button
-          v-for="npc in validNpcCandidates.filter(n => !npcsWithFailedAvatar.has(n))"
-          :key="npc"
-          @click="$emit('open-new-session', npc)"
-          class="group flex flex-col items-center transition-all"
+      <!-- 按阵营分组展示 -->
+      <div v-else class="space-y-8">
+        <section
+          v-for="group in npcGroups"
+          :key="group.factionLabel"
+          class="space-y-4"
         >
-          <!-- NPC 头像 150x150 -->
-          <div class="w-[150px] h-[150px] rounded border border-[#333333] group-hover:border-[#00ff41] overflow-hidden bg-[#0a0a0a] transition-all hover:shadow-[0_0_15px_rgba(0,255,65,0.2)] relative">
-            <img
-              :src="getAvatarUrl(npc)"
-              :alt="npc"
-              class="w-full h-full object-cover relative z-10"
-              @error="(e) => handleAvatarError(e, npc)"
-            />
+          <!-- 阵营标题：无阵营时不显示或显示为「未设置」 -->
+          <h3
+            v-if="group.factionLabel !== FACTION_NONE"
+            class="text-xs font-bold text-[#00ffff] uppercase tracking-wider font-mono flex items-center gap-2"
+          >
+            <span class="w-1 h-3 bg-[#00ffff]"></span>
+            {{ getFactionDisplayLabel(group.factionLabel) }}
+          </h3>
+          <h3
+            v-else
+            class="text-xs font-bold text-[#666666] uppercase tracking-wider font-mono flex items-center gap-2"
+          >
+            <span class="w-1 h-3 bg-[#666666]"></span>
+            未设置
+          </h3>
+          <!-- 头像网格 150px -->
+          <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-4">
+            <button
+              v-for="npc in group.npcs.filter(n => !npcsWithFailedAvatar.has(n.npc_name))"
+              :key="npc.npc_name"
+              @click="$emit('open-new-session', npc.npc_name)"
+              class="group flex flex-col items-center transition-all"
+            >
+              <div class="w-[150px] h-[150px] rounded border border-[#333333] group-hover:border-[#00ff41] overflow-hidden bg-[#0a0a0a] transition-all hover:shadow-[0_0_15px_rgba(0,255,65,0.2)] relative">
+                <img
+                  :src="getAvatarUrl(npc.npc_name)"
+                  :alt="npc.npc_name"
+                  class="w-full h-full object-cover relative z-10"
+                  @error="(e) => handleAvatarError(e, npc.npc_name)"
+                />
+              </div>
+              <p class="mt-2 text-center text-gray-400 group-hover:text-[#00ff41] font-mono text-sm truncate w-full px-2 transition-colors">
+                {{ npc.npc_name }}
+              </p>
+            </button>
           </div>
-          <!-- NPC 名字 -->
-          <p class="mt-2 text-center text-gray-400 group-hover:text-[#00ff41] font-mono text-sm truncate w-full px-2 transition-colors">
-            {{ npc }}
-          </p>
-        </button>
+        </section>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { getAvatarUrl } from '../api/assets'
+import type { NpcCandidateItem } from '../api/game'
 
-defineProps<{
+const FACTION_ELDER = 'A兵团元老'
+const FACTION_A = 'A兵团'
+const FACTION_ROCK = '摇滚公园'
+const FACTION_EGG = '彩蛋'
+const FACTION_MEMBER = '成员'
+const FACTION_NONE = '无'
+
+/** 阵营排序权重：越小越靠前；彩蛋、成员放最后 */
+function getFactionSortKey(label: string): number {
+  if (label === FACTION_ELDER) return 0
+  if (label === FACTION_A) return 1
+  if (label === FACTION_ROCK) return 2
+  if (label === FACTION_EGG) return 998
+  if (label === FACTION_MEMBER) return 999
+  if (label === FACTION_NONE) return 1000
+  return 3 // 其他阵营排在 A兵团 之后、彩蛋/成员 之前，同权重按名称稳定排序
+}
+
+/** 阵营显示名映射：支持把后端原始值换成更友好的文案 */
+function getFactionDisplayLabel(label: string): string {
+  if (label === FACTION_EGG) return '???'
+  if (label === FACTION_A) return 'A兵团成员'
+  return label
+}
+
+const props = defineProps<{
   hasCoreSettings: boolean
   playerIdentity: string
   loadingSessions: boolean
   validatingNpcs: boolean
-  validNpcCandidates: string[]
+  validNpcCandidates: NpcCandidateItem[]
   npcsWithFailedAvatar: Set<string>
   handleAvatarError: (event: Event, npcName?: string) => void
 }>()
@@ -87,5 +135,25 @@ defineEmits<{
   (e: 'open-settings'): void
   (e: 'open-new-session', npcName: string): void
 }>()
+
+/** 按阵营分组并排序：A兵团元老 → A兵团 → 其他 → 彩蛋 → 成员 → 无 */
+const npcGroups = computed(() => {
+  const raw = props.validNpcCandidates
+  const map = new Map<string, NpcCandidateItem[]>()
+  const norm = (f: string | null) => (f === null || f === '') ? FACTION_NONE : f
+  for (const item of raw) {
+    const label = norm(item.faction)
+    if (!map.has(label)) map.set(label, [])
+    map.get(label)!.push(item)
+  }
+  const factions = Array.from(map.entries())
+  factions.sort(([a], [b]) => {
+    const ka = getFactionSortKey(a)
+    const kb = getFactionSortKey(b)
+    if (ka !== kb) return ka - kb
+    return a.localeCompare(b)
+  })
+  return factions.map(([factionLabel, npcs]) => ({ factionLabel, npcs }))
+})
 </script>
 

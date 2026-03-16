@@ -462,7 +462,8 @@ import {
   updateSessionTitle,
   deleteSession,
   type Session,
-  type ChatMessage
+  type ChatMessage,
+  type NpcCandidateItem
 } from '../api/game'
 
 const playerStore = usePlayerStore()
@@ -470,7 +471,7 @@ const showSettings = ref(false)
 
 // 会话相关状态
 const sessions = ref<Session[]>([])
-const npcCandidates = ref<string[]>([])
+const npcCandidates = ref<NpcCandidateItem[]>([])
 const currentSessionId = ref<string>('')
 const loadingSessions = ref(false)
 const showNewSessionModal = ref(false)
@@ -536,7 +537,7 @@ const illustrationDragging = ref(false)
 const npcsWithFailedAvatar = ref<Set<string>>(new Set())
 
 // 记录有效头像的NPC
-const validNpcCandidates = ref<string[]>([]) // 有效头像的NPC
+const validNpcCandidates = ref<NpcCandidateItem[]>([]) // 有效头像的NPC
 const validatingNpcs = ref(false) // 是否正在验证头像
 
 // 会话操作菜单相关状态
@@ -896,7 +897,7 @@ const loadSessions = async (isRetry: boolean = false) => {
     validatingNpcs.value = true
     // 并发验证所有NPC的头像
     const validationPromises = npcCandidates.value.map(async (npc) => {
-      const isValid = await verifyAvatar(npc)
+      const isValid = await verifyAvatar(npc.npc_name)
       return { npc, isValid }
     })
     
