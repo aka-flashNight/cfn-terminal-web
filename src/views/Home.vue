@@ -936,7 +936,7 @@ function onIllustrationDragStart(e: MouseEvent) {
     // 向上最多移 10px，避免无下身立绘穿帮；向下不限制
     illustrationOffset.value = {
       x: start.x + (e2.clientX - startX),
-      y: Math.max(-10, dy)
+      y: Math.max(-5, dy)
     }
   }
   const onUp = () => {
