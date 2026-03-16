@@ -1,72 +1,14 @@
 <template>
   <div class="flex h-full w-full">
-    <!-- 左侧边栏 -->
-    <aside class="w-[250px] flex-shrink-0 bg-[#111111] border-r border-[#333333] flex flex-col">
-      <!-- 顶部：会话列表标题 -->
-      <div class="p-4 border-b border-[#333333]">
-        <h2 class="text-sm font-bold text-[#00ff41] uppercase tracking-wider flex items-center gap-2">
-          <span class="w-2 h-2 bg-[#00ff41] rounded-full animate-pulse"></span>
-          会话列表
-        </h2>
-      </div>
-
-      <!-- 中间：会话列表区域 -->
-      <div class="flex-1 overflow-y-auto p-2">
-        <!-- 加载中 -->
-        <div v-if="loadingSessions" class="text-[#555555] text-sm text-center py-4">
-          加载中...
-        </div>
-        <!-- 空状态 -->
-        <div v-else-if="sessions.length === 0" class="text-[#555555] text-sm italic text-center py-4">
-          暂无会话
-        </div>
-        <!-- 会话列表 -->
-        <div v-else class="space-y-1">
-          <div
-            v-for="session in sessions"
-            :key="session.session_id"
-            class="group relative"
-          >
-            <button
-              @click="selectSession(session.session_id)"
-              class="w-full text-left p-3 rounded border transition-all pr-8"
-              :class="currentSessionId === session.session_id
-                ? 'bg-[#00ff41]/10 border-[#00ff41]/50 text-[#00ff41]'
-                : 'bg-[#1a1a1a] border-transparent text-gray-400 hover:bg-[#252525] hover:text-[#00ff41]'"
-            >
-              <div class="text-sm font-medium truncate">{{ session.title }}</div>
-              <div class="text-xs text-[#555555] mt-1">{{ session.npc_name }}</div>
-            </button>
-            <!-- 操作菜单按钮 (悬停显示) -->
-            <div
-              class="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity"
-            >
-              <button
-                @click.stop="openSessionMenu(session, $event)"
-                class="p-1.5 text-[#444444] hover:text-[#00ff41] hover:bg-[#00ff41]/10 rounded transition-all duration-150 ease-out"
-              >
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
-                  <circle cx="12" cy="6" r="1.5"/>
-                  <circle cx="12" cy="12" r="1.5"/>
-                  <circle cx="12" cy="18" r="1.5"/>
-                </svg>
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 底部：设置按钮 -->
-      <div class="p-4 border-t border-[#333333]">
-        <button
-          @click="showSettings = true"
-          class="w-full py-3 px-4 bg-[#1a1a1a] hover:bg-[#252525] border border-[#444444] hover:border-[#00ff41] rounded flex items-center justify-center gap-2 transition-all duration-200 group"
-        >
-          <span class="text-lg group-hover:rotate-45 transition-transform duration-300">⚙️</span>
-          <span class="text-sm font-medium text-gray-400 group-hover:text-[#00ff41]">设置</span>
-        </button>
-      </div>
-    </aside>
+    <!-- 左侧边栏：会话列表 -->
+    <SessionSidebar
+      :sessions="sessions"
+      :current-session-id="currentSessionId"
+      :loading-sessions="loadingSessions"
+      :select-session="selectSession"
+      :open-session-menu="openSessionMenu"
+      @open-settings="showSettings = true"
+    />
 
     <!-- 右侧主区域 -->
     <main class="flex-1 bg-[#0a0a0a] relative overflow-hidden">
@@ -77,43 +19,15 @@
 
       <!-- 聊天面板 -->
       <div v-if="currentSessionId" class="relative z-10 h-full flex flex-col">
-        <!-- 聊天面板头部 -->
-        <div class="p-4 border-b border-[#333333] flex items-center justify-between bg-[#111111]/50">
-          <div class="flex items-center gap-3">
-            <button
-              @click="exitSession"
-              class="text-[#555555] hover:text-[#ff0040] transition-colors text-sm font-mono"
-            >
-              ← 返回
-            </button>
-            <span class="text-[#333333]">|</span>
-            <div>
-              <h3 class="text-[#00ff41] font-mono">{{ currentSessionTitle }}</h3>
-              <p class="text-xs text-[#555555]">{{ currentSessionNpc }}</p>
-            </div>
-          </div>
-          <!-- 好感度显示 -->
-          <div v-if="favorability !== null" class="flex items-center gap-4 text-sm font-mono">
-            <div class="flex items-center gap-2">
-              <span class="text-[#888888]">好感度:</span>
-              <span class="text-[#00ff41]">{{ favorability }}</span>
-              <!-- 好感度变化飘字 -->
-              <Transition name="float">
-                <span
-                  v-if="showFavorChange"
-                  class="text-sm font-bold"
-                  :class="favorChangeValue > 0 ? 'text-[#00ff41]' : 'text-[#ff0040]'"
-                >
-                  {{ favorChangeValue > 0 ? '+' : '' }}{{ favorChangeValue }}
-                </span>
-              </Transition>
-            </div>
-            <div class="flex items-center gap-2">
-              <span class="text-[#888888]">关系:</span>
-              <span class="text-[#00ffff]">{{ relationshipLevel }}</span>
-            </div>
-          </div>
-        </div>
+        <ChatHeader
+          :current-session-title="currentSessionTitle"
+          :current-session-npc="currentSessionNpc"
+          :favorability="favorability"
+          :relationship-level="relationshipLevel"
+          :show-favor-change="showFavorChange"
+          :favor-change-value="favorChangeValue"
+          @exit="exitSession"
+        />
 
         <!-- 聊天内容区域 -->
         <div class="flex-1 relative min-h-0">
@@ -468,74 +382,18 @@
       </div>
 
       <!-- 默认视图：NPC 候选列表 -->
-      <div v-else class="relative z-10 h-full overflow-y-auto p-6">
-        <!-- 标题 -->
-        <div class="mb-8">
-          <h1 class="text-4xl font-bold text-[#00ff41] mb-2 text-glow-green font-mono">CFN TERMINAL</h1>
-          <p class="text-[#888888] text-sm font-mono">通讯终端</p>
-        </div>
-
-        <!-- 佣兵身份预览 -->
-        <div v-if="hasCoreSettings" class="mb-8 p-4 bg-[#111111] border border-[#00ffff]/30 rounded max-w-xl">
-          <p class="text-[#00ffff] text-xs mb-1 font-mono uppercase">当前身份</p>
-          <p class="text-[#00ff41] font-mono">{{ playerStore.playerIdentity }}</p>
-        </div>
-
-        <!-- 未配置提示 -->
-        <div v-else class="mb-8 p-4 bg-[#111111] border border-[#ff0040]/50 rounded max-w-xl">
-          <p class="text-[#ff0040] text-sm font-mono">[WARNING] 请先完成佣兵档案配置</p>
-          <button
-            @click="showSettings = true"
-            class="mt-3 px-4 py-2 bg-[#ff0040]/20 border border-[#ff0040] text-[#ff0040] text-sm rounded hover:bg-[#ff0040]/30 transition-all"
-          >
-            立即配置
-          </button>
-        </div>
-
-        <!-- NPC 候选列表 -->
-        <div v-if="!loadingSessions">
-          <h2 class="text-sm font-bold text-[#00ff41] uppercase tracking-wider mb-4 font-mono flex items-center gap-2">
-            <span class="w-1 h-4 bg-[#00ff41]"></span>
-            可通讯人员
-          </h2>
-
-          <!-- 头像验证加载中状态 -->
-          <div v-if="validatingNpcs" class="flex items-center gap-3 text-[#555555] text-sm font-mono py-8">
-            <div class="w-4 h-4 border-2 border-[#00ff41] border-t-transparent rounded-full animate-spin"></div>
-            <span>[SYSTEM] 正在扫描通讯录并建立安全连接...</span>
-          </div>
-
-          <!-- 验证完毕，但列表为空 -->
-          <div v-else-if="validNpcCandidates.length === 0" class="text-[#555555] text-sm italic font-mono py-8">
-            [WARNING] 暂无可用通讯人员
-          </div>
-
-          <!-- 头像大小改为 150px，每行显示更多 -->
-          <div v-else class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-4">
-            <!-- 直接遍历 validNpcCandidates，不需要再过滤 -->
-            <button
-              v-for="npc in validNpcCandidates.filter(n => !npcsWithFailedAvatar.has(n))"
-              :key="npc"
-              @click="openNewSessionModal(npc)"
-              class="group flex flex-col items-center transition-all"
-            >
-              <!-- NPC 头像 150x150 -->
-              <div class="w-[150px] h-[150px] rounded border border-[#333333] group-hover:border-[#00ff41] overflow-hidden bg-[#0a0a0a] transition-all hover:shadow-[0_0_15px_rgba(0,255,65,0.2)] relative">
-                <img
-                  :src="getAvatarUrl(npc)"
-                  :alt="npc"
-                  class="w-full h-full object-cover relative z-10"
-                  @error="(e) => handleAvatarError(e, npc)"
-                />
-              </div>
-              <!-- NPC 名字 -->
-              <p class="mt-2 text-center text-gray-400 group-hover:text-[#00ff41] font-mono text-sm truncate w-full px-2 transition-colors">
-                {{ npc }}
-              </p>
-            </button>
-          </div>
-        </div>
-      </div>
+      <NpcCandidateView
+        v-else
+        :has-core-settings="hasCoreSettings"
+        :player-identity="playerStore.playerIdentity"
+        :loading-sessions="loadingSessions"
+        :validating-npcs="validatingNpcs"
+        :valid-npc-candidates="validNpcCandidates"
+        :npcs-with-failed-avatar="npcsWithFailedAvatar"
+        :handle-avatar-error="handleAvatarError"
+        @open-settings="showSettings = true"
+        @open-new-session="openNewSessionModal"
+      />
     </main>
 
     <!-- 设置弹窗 -->
@@ -584,6 +442,9 @@ import NewSessionModal from '../components/NewSessionModal.vue'
 import SessionActionMenu from '../components/SessionActionMenu.vue'
 import RenameSessionModal from '../components/RenameSessionModal.vue'
 import DeleteSessionConfirmModal from '../components/DeleteSessionConfirmModal.vue'
+import SessionSidebar from '../components/SessionSidebar.vue'
+import ChatHeader from '../components/ChatHeader.vue'
+import NpcCandidateView from '../components/NpcCandidateView.vue'
 import {
   getAvatarUrl,
   getIllustrationUrl,
