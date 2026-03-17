@@ -59,6 +59,8 @@ export interface NPCChatRequest {
   proxy_url?: string | null
   /** 精确短期记忆长度档位：10/30/100/500，对应后端 SUMMARIZE_INTERVAL */
   summarize_interval?: number | null
+  /** 剧情进度阶段：废城→雪山 对应 1→6 */
+  progress_stage?: number | null
 }
 
 // 发送消息响应

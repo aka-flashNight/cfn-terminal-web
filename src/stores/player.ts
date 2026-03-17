@@ -28,6 +28,16 @@ export const PROGRESS_TO_IDENTITY: Record<ProgressType, string> = {
   [Progress.SNOW_MOUNTAIN]: '元老级'
 }
 
+// 从废城到雪山对应 1–6 阶段，用于向后端传递数值型进度
+export const PROGRESS_TO_STAGE_INDEX: Record<ProgressType, number> = {
+  [Progress.WASTED_CITY]: 1,
+  [Progress.FALLEN_CITY]: 2,
+  [Progress.WARLORD]: 3,
+  [Progress.BLACK_IRON_HQ]: 4,
+  [Progress.NOAH]: 5,
+  [Progress.SNOW_MOUNTAIN]: 6
+}
+
 // 常见平台 API Base 配置映射（包含中转站、云平台、官方等）
 // 用于用户手动选择平台时快速切换 API Base
 export const COMMON_PLATFORMS = {
@@ -216,6 +226,9 @@ export const usePlayerStore = defineStore('player', () => {
     return `一名 A 兵团${identity}${genderText}佣兵${bioText}。`
   })
 
+  // 数值型剧情进度阶段：废城→雪山 对应 1→6
+  const storyProgressStage = computed(() => PROGRESS_TO_STAGE_INDEX[progress.value] ?? 1)
+
   // Actions
   const updateModelName = (newModelName: string) => {
     model_name.value = newModelName
@@ -319,6 +332,7 @@ export const usePlayerStore = defineStore('player', () => {
 
     // Getters
     playerIdentity,
+    storyProgressStage,
 
     // Actions
     updateModelName,

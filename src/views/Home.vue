@@ -1121,7 +1121,8 @@ const sendChatMessage = async () => {
       api_base: playerStore.api_base || null,
       model_name: playerStore.model_name || null,
       proxy_url: playerStore.proxy_url || null,
-      summarize_interval: playerStore.summarize_interval ?? null
+      summarize_interval: playerStore.summarize_interval ?? null,
+      progress_stage: playerStore.storyProgressStage ?? null
     }
     if (currentEmotion.value?.trim()) {
       payload.current_emotion = currentEmotion.value.trim()
