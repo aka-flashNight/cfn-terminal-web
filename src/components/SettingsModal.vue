@@ -128,7 +128,7 @@
             <div>
               <label class="block text-sm font-medium mb-2 text-[#00ff41] font-mono">
                 > 模型名称
-                <span class="text-xs text-[#555555] ml-2">(填写后，若API Base为空，将自动推导官方 API Base。非官网模型请手动修改)</span>
+                <span class="text-xs text-[#555555] ml-2">(即model的值。填写后，若API Base为空，将自动推导官方 API Base。非官网模型请手动修改)</span>
               </label>
               <div class="relative">
                 <input
@@ -271,7 +271,7 @@
             <!-- 历史记录长度 -->
             <div>
               <label class="block text-sm font-medium mb-2 text-[#00ff41] font-mono">
-                > 历史记录长度/精确短期记忆长度
+                > 精确短期记忆长度
               </label>
               <div class="relative">
                 <input
@@ -298,10 +298,10 @@
                   [提示] 角色已具有单个会话内容的永久模糊记忆功能，此处调整的仅为精确的短期记忆长度。
                 </p>
                 <p class="text-[#888888] text-xs font-mono leading-relaxed mt-1">
-                  [注意] 更长的历史长度更加考验模型自身上下文能力，并要求模型具有对应的上下文窗口。
+                  [注意] 更长的精确记忆长度更加考验模型自身上下文能力，并要求模型具有对应的上下文窗口。
                 </p>
                 <p class="text-[#888888] text-xs font-mono leading-relaxed mt-1">
-                  [注意] 更长的历史长度将导致 token 消耗上升。请根据实际情况选择。
+                  [注意] 更长的精确记忆长度将导致 token 消耗上升。请根据实际情况选择。
                 </p>
               </div>
             </div>
