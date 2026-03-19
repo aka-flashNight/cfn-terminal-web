@@ -1174,6 +1174,7 @@ const sendChatMessage = async () => {
       api_base: playerStore.api_base || null,
       model_name: playerStore.model_name || null,
       proxy_url: playerStore.proxy_url || null,
+      agent_enabled: playerStore.agent_enabled,
       summarize_interval: playerStore.summarize_interval ?? null,
       progress_stage: playerStore.storyProgressStage ?? null
     }

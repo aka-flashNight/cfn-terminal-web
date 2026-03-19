@@ -268,6 +268,29 @@
               </p>
             </div>
 
+            <!-- Agent 能力（布局与「记住 API Key」一致：标题 + 下一行勾选+说明文字） -->
+            <div>
+              <div class="block text-sm font-medium mb-2 text-[#00ff41] font-mono">
+                &gt; Agent 能力
+              </div>
+              <div class="space-y-2">
+                <label class="flex items-center cursor-pointer group">
+                  <input
+                    id="settings-agent-enabled"
+                    v-model="formData.agent_enabled"
+                    type="checkbox"
+                    class="mr-2 accent-[#00ff41] w-4 h-4"
+                  />
+                  <span class="text-gray-400 group-hover:text-[#00ff41] transition-colors text-sm">
+                    启用 Agent 功能
+                  </span>
+                </label>
+                <p class="text-[#555555] text-xs font-mono leading-relaxed">
+                  [提示] 启用后，NPC 可使用 Agent 功能（例如发布任务）；实行 Agent 功能时，<span class="text-[#ffaa00]">API 调用频率会明显上升，token 消耗也会增加。</span>建议配合具备<span class="text-[#00ffff]">缓存命中</span>能力的 AI 服务使用。
+                </p>
+              </div>
+            </div>
+
             <!-- 历史记录长度 -->
             <div>
               <label class="block text-sm font-medium mb-2 text-[#00ff41] font-mono">
@@ -464,6 +487,7 @@ const formData = ref({
   model_name: playerStore.model_name,
   proxy_url: playerStore.proxy_url,
   remember_api_key: playerStore.remember_api_key,
+  agent_enabled: playerStore.agent_enabled,
   summarize_interval: playerStore.summarize_interval
 })
 
@@ -552,6 +576,7 @@ const handleSave = () => {
   playerStore.model_name = formData.value.model_name
   playerStore.proxy_url = formData.value.proxy_url
   playerStore.remember_api_key = formData.value.remember_api_key
+  playerStore.agent_enabled = formData.value.agent_enabled
   playerStore.summarize_interval = formData.value.summarize_interval
 
   // 保存到 localStorage

@@ -62,6 +62,11 @@ export interface NPCChatRequest {
   api_base?: string | null
   model_name?: string | null
   proxy_url?: string | null
+  /**
+   * 是否启用 Agent 能力（工具调用、任务发布等）。
+   * 关闭后 ask 走无 Agent 路径，调用与 token 通常更低。
+   */
+  agent_enabled?: boolean | null
   /** 精确短期记忆长度档位：10/30/100/500，对应后端 SUMMARIZE_INTERVAL */
   summarize_interval?: number | null
   /** 剧情进度阶段：废城→雪山 对应 1→6 */

@@ -70,6 +70,8 @@ npm run build
 - `POST /api/game/ask` - 发送消息并获取 NPC 回复（非流式）
 - `POST /api/game/ask?stream=true` - 流式发送消息（SSE：`content` / `done` / `tool_status` / `system` / `error` 事件）
 
+**Ask 请求体补充**：`agent_enabled`（boolean，可选，前端默认 `true`）— 关闭时不走 Agent（工具/任务等）；开启时调用与 token 通常更高，建议后端/模型侧配合缓存命中。
+
 ### SSE 事件约定（/api/game/ask?stream=true）
 
 后端以 Server-Sent Events 推送多类事件，前端按 `event:` 分发解析：
@@ -103,6 +105,7 @@ npm run build
 - **玩家身份** - 设置性别和游戏进度，影响 NPC 对你的称呼和对话内容
 - **AI 模型** - 配置 API Key、Base URL 和模型名称（如 OpenAI、Claude 等）
 - **代理服务器** - 可选；若需通过代理访问 AI 服务，可填写代理地址，留空则使用系统代理或不使用代理
+- **Agent 能力** - 默认开启；关闭可降低 ask 的 API 频率与 token。开启时 NPC 可使用 Agent（如发布任务），建议配合带缓存命中能力的 AI 服务
 - **立绘管理** - 可「补充缺失立绘」或「重新生成全部立绘」；立绘可从 illustration.zip 解压或从 SWF 导出（后者需较长时间）
 - **重置知识库** - 可强制后端重新生成向量库（如文档或设定变更后）
 
@@ -115,7 +118,7 @@ npm run build
 1. **完成佣兵档案配置**  
    首次打开页面会提示「请先完成佣兵档案配置」。点击 **设置**（左下角）或 **立即配置**，在「佣兵档案配置」中填写：
    - **性别**、**当前进度**（必填），可选填「一句话介绍」（最多 30 字），用于 NPC 对你的称呼与对话内容。
-   - **系统配置**：模型名称、API Base、API Key；若需走代理访问 AI，填写「代理服务器地址」。
+   - **系统配置**：模型名称、API Base、API Key；若需走代理访问 AI，填写「代理服务器地址」；可在「Agent 能力」中关闭 Agent 以降低调用与 token（默认开启）。
    - 保存后即可在首页看到「当前身份」预览；未配置时首页会持续提示配置。
 
 ### 主界面与会话
