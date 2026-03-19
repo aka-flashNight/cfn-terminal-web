@@ -299,7 +299,17 @@
                             :class="node.type === 'action' ? 'message-action-text message-action-text-npc message-action-inline' : 'text-[#00ffff]'"
                           >{{ node.content }}</span>
                         </p>
-                          <p class="text-[#555555] text-xs mt-1">{{ formatTime(msg.timestamp) }}</p>
+                          <div class="mt-1 flex items-center gap-3">
+                            <p class="text-[#555555] text-xs">{{ formatTime(msg.timestamp) }}</p>
+                            <button
+                              v-if="shouldShowRetryButton(msg)"
+                              type="button"
+                              class="text-xs text-[#00ffff]/90 hover:text-[#00ffff] transition-colors"
+                              @click="retryCancelledMessage(msg.id)"
+                            >
+                              重试
+                            </button>
+                          </div>
                         </div>
                       </div>
                       <div class="relative flex-shrink-0">
@@ -396,7 +406,7 @@
                 maxlength="500"
                 class="w-full bg-[#1a1a1a] text-[#00ff41] border border-[#333333] rounded-lg pl-4 pr-[4.2rem] py-3 focus:outline-none focus:border-[#00ff41] focus:shadow-[0_0_10px_rgba(0,255,65,0.2)] transition-all placeholder-[#444444]"
                 :disabled="isLoading"
-                @keyup.enter="sendChatMessage"
+                @keyup.enter="sendChatMessage()"
               />
               <span
                 v-show="inputMessage.length >= 300"
@@ -531,6 +541,7 @@ const actionInput = ref('')
 const mainInputRef = ref<HTMLInputElement | null>(null)
 const isLoading = ref(false)
 const abortControllerRef = ref<AbortController | null>(null)
+const retryQueryByAssistantMsgId = ref<Record<number, string>>({})
 const isFirstMessage = ref(true)
 const favorability = ref<number | null>(null)
 const relationshipLevel = ref('')
@@ -1133,25 +1144,54 @@ const cancelChatMessage = () => {
   abortControllerRef.value?.abort()
 }
 
-const sendChatMessage = async () => {
-  if (!inputMessage.value.trim() || isLoading.value || !currentSessionId.value) return
+const shouldShowRetryButton = (msg: ChatMessage) => {
+  if (msg.role !== 'assistant') return false
+  if (!msg.content.includes('（已终止）')) return false
+  return !!retryQueryByAssistantMsgId.value[msg.id]
+}
+
+const retryCancelledMessage = (assistantMsgId: number) => {
+  if (isLoading.value) return
+  const retryQuery = retryQueryByAssistantMsgId.value[assistantMsgId]
+  if (!retryQuery?.trim()) return
+
+  void sendChatMessage({
+    presetMessage: retryQuery,
+    reuseAssistantMsgId: assistantMsgId,
+    skipUserAppend: true
+  })
+}
+
+const sendChatMessage = async (options?: {
+  presetMessage?: string
+  reuseAssistantMsgId?: number
+  skipUserAppend?: boolean
+}) => {
+  if (isLoading.value || !currentSessionId.value) return
 
   const actionPart = actionInput.value.trim()
   const dialoguePart = inputMessage.value.trim()
-  const message = actionPart ? `【${actionPart}】\n${dialoguePart}` : dialoguePart
-  inputMessage.value = ''
-  actionInput.value = ''
+  const normalMessage = actionPart ? `【${actionPart}】\n${dialoguePart}` : dialoguePart
+  const message = (options?.presetMessage ?? normalMessage).trim()
+  if (!message) return
+
+  if (!options?.presetMessage) {
+    inputMessage.value = ''
+    actionInput.value = ''
+  }
   isLoading.value = true
   abortControllerRef.value = new AbortController()
 
-  // 添加用户消息到列表（临时）
-  const tempUserMsg: ChatMessage = {
-    id: Date.now(),
-    role: 'user',
-    content: message,
-    timestamp: Math.floor(Date.now() / 1000)
+  // 常规发送：添加用户消息；重试发送：复用原消息，不新增用户消息
+  if (!options?.skipUserAppend) {
+    const tempUserMsg: ChatMessage = {
+      id: Date.now(),
+      role: 'user',
+      content: message,
+      timestamp: Math.floor(Date.now() / 1000)
+    }
+    chatMessages.value.push(tempUserMsg)
   }
-  chatMessages.value.push(tempUserMsg)
 
   // 滚动到底部
   await nextTick()
@@ -1159,15 +1199,32 @@ const sendChatMessage = async () => {
 
   // 一条占位 NPC 消息，先显示「正在链接终端...」，收到首段流式内容后在同一条里做打字机
   const placeholderText = isFirstMessage.value ? '[首次连接，等待终端加载...]' : '[正在链接终端...]'
-  const npcMsg: ChatMessage = {
-    id: Date.now() + 1,
-    role: 'assistant',
-    content: placeholderText,
-    timestamp: Math.floor(Date.now() / 1000),
-    bubblePlaceholder: placeholderText
+  let npcMsg: ChatMessage
+  let npcMsgIndex: number
+  if (options?.reuseAssistantMsgId) {
+    const reuseIndex = chatMessages.value.findIndex(m => m.id === options.reuseAssistantMsgId)
+    const reuseMsg = reuseIndex >= 0 ? chatMessages.value[reuseIndex] : null
+    if (!reuseMsg || reuseMsg.role !== 'assistant') {
+      isLoading.value = false
+      abortControllerRef.value = null
+      return
+    }
+    reuseMsg.content = placeholderText
+    reuseMsg.timestamp = Math.floor(Date.now() / 1000)
+    reuseMsg.bubblePlaceholder = placeholderText
+    npcMsg = reuseMsg
+    npcMsgIndex = reuseIndex
+  } else {
+    npcMsg = {
+      id: Date.now() + 1,
+      role: 'assistant',
+      content: placeholderText,
+      timestamp: Math.floor(Date.now() / 1000),
+      bubblePlaceholder: placeholderText
+    }
+    chatMessages.value.push(npcMsg)
+    npcMsgIndex = chatMessages.value.length - 1
   }
-  chatMessages.value.push(npcMsg)
-  const npcMsgIndex = chatMessages.value.length - 1
   loadingPlaceholderActive.value = true
   loadingPlaceholderMsgId.value = npcMsg.id
   loadingPlaceholderDefaultText.value = placeholderText
@@ -1287,6 +1344,9 @@ const sendChatMessage = async () => {
         if (msg && msg.content !== `${prefix}${replyStr}`) {
           msg.content = `${prefix}${replyStr}`
         }
+        const nextMap = { ...retryQueryByAssistantMsgId.value }
+        delete nextMap[npcMsg.id]
+        retryQueryByAssistantMsgId.value = nextMap
         injectedSystemBlocks = []
         const prevFavor = favorability.value
         favorability.value = data.favorability
@@ -1320,6 +1380,9 @@ const sendChatMessage = async () => {
         loadingPlaceholderMsgId.value = null
         loadingPlaceholderDefaultText.value = ''
         loadingPlaceholderLastToolText.value = ''
+        const nextMap = { ...retryQueryByAssistantMsgId.value }
+        delete nextMap[npcMsg.id]
+        retryQueryByAssistantMsgId.value = nextMap
         nextTick().then(scrollToBottom)
       },
       onCancelled() {
@@ -1338,6 +1401,10 @@ const sendChatMessage = async () => {
           if (!trimmed.endsWith(cancelledTag)) {
             msg.content = trimmed + (trimmed ? '\n' : '') + cancelledTag
           }
+        }
+        retryQueryByAssistantMsgId.value = {
+          ...retryQueryByAssistantMsgId.value,
+          [npcMsg.id]: message
         }
 
         loadingPlaceholderActive.value = false
@@ -1366,6 +1433,9 @@ const sendChatMessage = async () => {
         timestamp: Math.floor(Date.now() / 1000)
       })
     }
+    const nextMap = { ...retryQueryByAssistantMsgId.value }
+    delete nextMap[npcMsg.id]
+    retryQueryByAssistantMsgId.value = nextMap
     nextTick().then(scrollToBottom)
   } finally {
     isLoading.value = false
