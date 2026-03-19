@@ -1,6 +1,6 @@
 # CFN Terminal
 
-一个与游戏 NPC 进行沉浸式对话的前端终端界面，配合 RAG 检索后端实现智能 NPC 交互。
+一个与游戏 NPC 进行沉浸式对话的前端终端界面，配合 RAG + Agent 检索后端实现智能 NPC 交互。
 
 ![Vue 3](https://img.shields.io/badge/Vue_3-4FC08D?style=flat&logo=vue.js&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat&logo=typescript&logoColor=white)
@@ -17,6 +17,7 @@
 - **立绘展示** - 立绘布局模式（全局居中 / 右侧对齐 / 右侧居中），支持拖动微调位置
 - **角色设定** - 可配置玩家身份（性别、游戏进度等），影响 NPC 对话内容
 - **AI 模型与代理** - 自定义 API Key、Base URL、模型名称；可选填代理服务器地址以访问 AI 服务
+- **Agent 工具状态与系统通知** - 流式回复期间可展示工具调用进度（`tool_status`），任务草案/发布等系统通知以居中提示展示（`system`）
 - **立绘与知识库** - 设置内可补充/重新生成立绘（含从 SWF 导出），可重置知识库（重新生成向量库）
 
 ## 技术栈
@@ -67,7 +68,22 @@ npm run build
 - `PUT /api/game/sessions/:sessionId/title` - 重命名会话（请求体 `{ "title": "新标题" }`）
 - `GET /api/game/history/:sessionId` - 获取会话历史记录
 - `POST /api/game/ask` - 发送消息并获取 NPC 回复（非流式）
-- `POST /api/game/ask?stream=true` - 流式发送消息（SSE：`content` / `done` / `error` 事件）
+- `POST /api/game/ask?stream=true` - 流式发送消息（SSE：`content` / `done` / `tool_status` / `system` / `error` 事件）
+
+### SSE 事件约定（/api/game/ask?stream=true）
+
+后端以 Server-Sent Events 推送多类事件，前端按 `event:` 分发解析：
+
+- **content**：`data: {"delta": "..."}`  
+  打字机增量，按顺序拼接为最终回复（其中 `【...】` 仍按动作描写解析渲染）。
+- **done**：`data: { reply, npc_name, favorability, relationship_level, favorability_change, emotion, ... }`  
+  最终整包数据（`reply` 为最终回复文本）。
+- **tool_status**：`data: { "text": "...", "tool_name": "..." }`  
+  工具调用/思考进度。前端**只展示 `text`**（不展示 `tool_name`）；若 `text` 末尾没有 `…` 或 `...`，会自动补一个 `…` 作为“进行中”提示。
+- **system**：`data: { "text": "[任务草案已更新]", "draft_id"?: "...", "task_id"?: "..." }`  
+  系统通知（任务拟定/发布等）。前端会将其写入当前 NPC 回复开头，格式为 `{[...]}`
+  并以**居中系统通知样式**单独成段渲染（与动作 `【...】` 分离）。
+  - 若当前消息仅包含系统块 `{...}`（含换行）而暂未产生对话正文，为避免视觉“空白”，仍会保留 NPC 气泡显示：优先沿用最近一次 `tool_status.text`，否则回退为默认连接提示。
 
 **NPC 与资源**
 
