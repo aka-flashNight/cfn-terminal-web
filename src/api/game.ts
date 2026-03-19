@@ -34,7 +34,7 @@ export interface CreateSessionResponse {
 // 聊天消息
 export interface ChatMessage {
   id: number
-  role: 'user' | 'assistant'
+  role: 'user' | 'assistant' | 'system'
   content: string
   timestamp: number
 }
@@ -127,6 +127,8 @@ export function sendMessage(data: NPCChatRequest): Promise<NPCChatResponse> {
 export interface SendMessageStreamCallbacks {
   onContent(delta: string): void
   onDone(data: NPCChatResponse): void
+  onToolStatus(text: string, tool_name: string | null): void
+  onSystem(text: string, draft_id?: string | null, task_id?: string | null): void
   onError(error: string): void
 }
 
@@ -186,6 +188,15 @@ export async function sendMessageStream(
           if (eventType === 'content') {
             const delta = typeof data.delta === 'string' ? data.delta : ''
             if (delta) callbacks.onContent(delta)
+          } else if (eventType === 'tool_status') {
+            const text = typeof data.text === 'string' ? data.text : ''
+            const tool_name = typeof data.tool_name === 'string' ? data.tool_name : null
+            callbacks.onToolStatus(text, tool_name)
+          } else if (eventType === 'system') {
+            const text = typeof data.text === 'string' ? data.text : ''
+            const draft_id = typeof data.draft_id === 'string' ? data.draft_id : null
+            const task_id = typeof data.task_id === 'string' ? data.task_id : null
+            callbacks.onSystem(text, draft_id, task_id)
           } else if (eventType === 'done') {
             doneReceived = true
             callbacks.onDone(data as unknown as NPCChatResponse)

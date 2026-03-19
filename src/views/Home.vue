@@ -154,8 +154,17 @@
               :key="msg.id"
               class="flex flex-col gap-0.5"
             >
+              <!-- 系统消息：只渲染字符串里的 [...]，单独居中一行 -->
+              <template v-if="msg.role === 'system'">
+                <div class="flex justify-center">
+                  <div class="text-xs text-[#555555] bg-[#111111] border border-[#333333] rounded-lg px-3 py-1.5 text-center">
+                    {{ extractSystemBracketText(msg.content) }}
+                  </div>
+                </div>
+              </template>
+
               <!-- 占位/加载中：整条为占位时只显示一条气泡，不拆块 -->
-              <template v-if="isLoadingPlaceholder(msg.content)">
+              <template v-else-if="isLoadingPlaceholder(msg)">
                 <div class="flex" :class="msg.role === 'user' ? 'justify-start' : 'justify-end'">
                   <div class="flex items-start gap-4" :class="chatBubbleMaxWidthClass">
                     <div class="relative">
@@ -165,6 +174,10 @@
                       ></div>
                       <div class="relative bg-[#0b0b0b] border border-[#00ffff]/40 rounded-lg p-3">
                         <p class="text-sm whitespace-pre-wrap text-[#555555] animate-pulse">{{ msg.content }}</p>
+                        <p
+                          v-if="loadingPlaceholderToolName"
+                          class="text-[#666666] text-xs mt-1"
+                        >工具：{{ loadingPlaceholderToolName }}</p>
                         <p class="text-[#555555] text-xs mt-1">{{ formatTime(msg.timestamp) }}</p>
                       </div>
                     </div>
@@ -299,7 +312,10 @@
             </div>
 
             <!-- Loading 状态：仅当「最后一条不是助手消息」时显示，避免与占位 NPC 消息重复成两条 -->
-            <div v-if="isLoading && (chatMessages.length === 0 || chatMessages[chatMessages.length - 1]?.role !== 'assistant')" class="flex justify-end items-center gap-3">
+            <div
+              v-if="isLoading && (chatMessages.length === 0 || (chatMessages[chatMessages.length - 1]?.role !== 'assistant' && chatMessages[chatMessages.length - 1]?.role !== 'system'))"
+              class="flex justify-end items-center gap-3"
+            >
               <div class="bg-[#111111] border border-[#00ffff]/30 rounded-lg p-3">
                 <p class="text-[#555555] text-sm animate-pulse">
                   {{ isFirstMessage ? '[首次连接，等待终端加载...]' : '[正在链接终端...]' }}
@@ -499,6 +515,12 @@ const illustrationError = ref(false)
 const showFavorChange = ref(false)
 const favorChangeValue = ref(0)
 const chatContainer = ref<HTMLDivElement>()
+
+// 流式回复占位（用于在收到 tool_status 后替换占位文案，收到 content 首段后退出占位）
+const loadingPlaceholderActive = ref(false)
+const loadingPlaceholderMsgId = ref<number | null>(null)
+const loadingPlaceholderToolName = ref<string | null>(null)
+
 // 立绘布局模式：'global-center' 全局居中；'right-docked' 右侧对齐展开；'right-center' 右侧 300px 区域内居中（默认）
 const illustrationMode = ref<'global-center' | 'right-docked' | 'right-center'>('right-center')
 
@@ -926,6 +948,9 @@ const selectSession = async (sessionId: string) => {
   currentSessionId.value = sessionId
   // 重置聊天状态
   chatMessages.value = []
+  loadingPlaceholderActive.value = false
+  loadingPlaceholderMsgId.value = null
+  loadingPlaceholderToolName.value = null
   favorability.value = null
   relationshipLevel.value = ''
   currentEmotion.value = '普通'
@@ -1036,6 +1061,9 @@ const onChatScroll = () => {
 const exitSession = () => {
   currentSessionId.value = ''
   chatMessages.value = []
+  loadingPlaceholderActive.value = false
+  loadingPlaceholderMsgId.value = null
+  loadingPlaceholderToolName.value = null
   favorability.value = null
   relationshipLevel.value = ''
   currentEmotion.value = '普通'
@@ -1110,6 +1138,9 @@ const sendChatMessage = async () => {
   }
   chatMessages.value.push(npcMsg)
   const npcMsgIndex = chatMessages.value.length - 1
+  loadingPlaceholderActive.value = true
+  loadingPlaceholderMsgId.value = npcMsg.id
+  loadingPlaceholderToolName.value = null
 
   try {
     const payload: Parameters<typeof sendMessageStream>[0] = {
@@ -1132,16 +1163,41 @@ const sendChatMessage = async () => {
       onContent(delta) {
         const msg = chatMessages.value[npcMsgIndex]
         if (!msg) return
-        // 第一次收到内容时用 delta 替换占位符，之后追加（打字机）
-        if (msg.content === placeholderText) {
+        // 第一次收到 content 时退出占位，之后追加（打字机）
+        if (loadingPlaceholderActive.value && loadingPlaceholderMsgId.value === msg.id) {
           msg.content = delta
+          loadingPlaceholderActive.value = false
+          loadingPlaceholderMsgId.value = null
+          loadingPlaceholderToolName.value = null
         } else {
           msg.content += delta
         }
         nextTick().then(scrollToBottom)
       },
+      onToolStatus(text, tool_name) {
+        const msg = chatMessages.value[npcMsgIndex]
+        if (!msg) return
+        if (!loadingPlaceholderActive.value || loadingPlaceholderMsgId.value !== msg.id) return
+
+        // 后端已做 length 校验兜底，这里再做二次校验（可选）
+        const safeText =
+          (typeof text === 'string' && text.length <= 12)
+            ? text
+            : '正在思考……'
+
+        msg.content = safeText
+        loadingPlaceholderToolName.value = (typeof tool_name === 'string' && tool_name.trim()) ? tool_name.trim() : null
+        nextTick().then(scrollToBottom)
+      },
+      onSystem(text, draft_id, task_id) {
+        pushSystemMessage(text, draft_id, task_id)
+        nextTick().then(scrollToBottom)
+      },
       onDone(data) {
         const msg = chatMessages.value[npcMsgIndex]
+        loadingPlaceholderActive.value = false
+        loadingPlaceholderMsgId.value = null
+        loadingPlaceholderToolName.value = null
         // 仅当最终回复与当前内容不同时才更新，避免重复赋值导致闪烁
         if (msg && msg.content !== data.reply) {
           msg.content = data.reply
@@ -1163,20 +1219,37 @@ const sendChatMessage = async () => {
       },
       onError(error) {
         const msg = chatMessages.value[npcMsgIndex]
-        if (msg) msg.content = `[系统] ${error}`
+        loadingPlaceholderActive.value = false
+        loadingPlaceholderMsgId.value = null
+        loadingPlaceholderToolName.value = null
+        if (msg) {
+          msg.role = 'system'
+          msg.content = `[系统 ${error}]`
+        } else {
+          chatMessages.value.push({
+            id: Date.now() + 2,
+            role: 'system',
+            content: `[系统 ${error}]`,
+            timestamp: Math.floor(Date.now() / 1000)
+          })
+        }
         nextTick().then(scrollToBottom)
       }
     })
   } catch (error) {
     console.error('Failed to send message:', error)
     const msg = chatMessages.value[npcMsgIndex]
+    loadingPlaceholderActive.value = false
+    loadingPlaceholderMsgId.value = null
+    loadingPlaceholderToolName.value = null
     if (msg) {
-      msg.content = '[系统] 连接终端失败，请检查网络或API配置'
+      msg.role = 'system'
+      msg.content = '[系统 连接终端失败，请检查网络或API配置]'
     } else {
       chatMessages.value.push({
         id: Date.now() + 2,
-        role: 'assistant',
-        content: '[系统] 连接终端失败，请检查网络或API配置',
+        role: 'system',
+        content: '[系统 连接终端失败，请检查网络或API配置]',
         timestamp: Math.floor(Date.now() / 1000)
       })
     }
@@ -1186,9 +1259,29 @@ const sendChatMessage = async () => {
   }
 }
 
-// 是否为「等待终端」占位文案（用于在气泡上显示加载动画）
-const isLoadingPlaceholder = (content: string) =>
-  content === '[首次连接，等待终端加载...]' || content === '[正在链接终端...]'
+// 系统消息渲染：只取字符串里的 [...]（例如 [任务发布成功]）
+const extractSystemBracketText = (raw: string) => {
+  const matches = raw?.match(/\[[^\]]+\]/g)
+  return matches && matches.length ? matches.join(' ') : raw
+}
+
+// 推送系统消息到聊天流（用于 system 事件）
+const pushSystemMessage = (text: string, draft_id?: string | null, task_id?: string | null) => {
+  chatMessages.value.push({
+    id:
+      Date.now() +
+      Math.floor(Math.random() * 1000) +
+      (typeof draft_id === 'string' ? draft_id.length : 0) +
+      (typeof task_id === 'string' ? task_id.length : 0),
+    role: 'system',
+    content: text,
+    timestamp: Math.floor(Date.now() / 1000)
+  })
+}
+
+// 是否为流式占位 NPC（用于在气泡上显示加载动画）
+const isLoadingPlaceholder = (msg: ChatMessage) =>
+  loadingPlaceholderActive.value && loadingPlaceholderMsgId.value === msg.id && msg.role === 'assistant'
 
 // 流式/静态消息解析：【】内为动作描写，方括号不显示，仅内容用 action 样式
 type ContentNode = { type: 'action' | 'text'; content: string }
