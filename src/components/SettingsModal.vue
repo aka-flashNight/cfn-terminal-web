@@ -282,11 +282,11 @@
                     class="mr-2 accent-[#00ff41] w-4 h-4"
                   />
                   <span class="text-gray-400 group-hover:text-[#00ff41] transition-colors text-sm">
-                    启用 Agent 功能
+                    启用 Agent 功能（可发布任务）
                   </span>
                 </label>
                 <p class="text-[#555555] text-xs font-mono leading-relaxed">
-                  [提示] 启用后，NPC 可使用 Agent 功能（例如发布任务）；实行 Agent 功能时，<span class="text-[#ffaa00]">API 调用频率会明显上升，token 消耗也会增加。</span>建议配合具备<span class="text-[#00ffff]">缓存命中</span>能力的 AI 服务使用。
+                  [提示] 启用后，NPC 可使用 Agent 功能；实行 Agent 功能时，<span class="text-[#ffaa00]">API 调用频率会明显上升，token 消耗也会增加。</span>建议配合具备<span class="text-[#00ffff]">缓存命中</span>能力的 AI 服务使用。
                 </p>
               </div>
             </div>
