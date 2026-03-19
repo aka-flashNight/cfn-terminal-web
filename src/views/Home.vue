@@ -206,9 +206,11 @@
                 <template v-for="(block, blockIdx) in messageToBlocks(msg.content)" :key="blockIdx">
                   <div
                     v-if="block.type === 'system'"
-                    class="flex mt-5 mb-1 relative z-10 justify-center w-full"
+                    class="flex mt-3 mb-5 relative z-10 justify-center w-full"
                   >
-                    <div class="text-xs text-[#555555] bg-[#111111] border border-[#333333] rounded-lg px-3 py-1.5 text-center">
+                    <div
+                      class="text-xs text-[#888888] bg-[#141414] border border-[#3a3a3a] rounded-lg px-4 py-2 text-center shadow-[0_0_0_1px_rgba(0,255,65,0.06)] max-w-[min(92%,28rem)]"
+                    >
                       {{ extractSystemBracesText(block.content) }}
                     </div>
                   </div>
