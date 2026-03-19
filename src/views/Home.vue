@@ -251,7 +251,7 @@
 
                   <!-- 气泡段落 -->
                   <div
-                    v-else-if="block.type === 'bubble' && block.content.trim()"
+                    v-else-if="block.type === 'bubble' && (block.content.trim() || shouldRenderEmptyAssistantBubble(msg))"
                     class="flex"
                     :class="msg.role === 'user' ? 'justify-start' : 'justify-end'"
                   >
@@ -263,6 +263,11 @@
                       <div class="bg-[#1a1a1a] border border-[#333333] rounded-lg p-3">
                         <p class="text-sm whitespace-pre-wrap">
                           <span
+                            v-if="!block.content.trim()"
+                            class="text-[#555555] animate-pulse"
+                          >{{ getEmptyAssistantBubbleText(msg) }}</span>
+                          <span
+                            v-else
                             v-for="(node, idx) in parseActionNodes(block.content)"
                             :key="idx"
                             :class="node.type === 'action' ? 'message-action-text message-action-inline' : 'text-gray-300'"
@@ -280,13 +285,18 @@
                           style="background: radial-gradient(circle at 100% 50%, rgba(0,0,0,0.7) 0%, rgba(5,5,5,0.58) 34%, rgba(5,5,5,0.3) 70%, transparent 100%);"
                         ></div>
                         <div class="relative bg-[#0b0b0b] border border-[#00ffff]/40 rounded-lg p-3">
-                          <p class="text-sm whitespace-pre-wrap">
-                            <span
-                              v-for="(node, idx) in parseActionNodes(block.content)"
-                              :key="idx"
-                              :class="node.type === 'action' ? 'message-action-text message-action-text-npc message-action-inline' : 'text-[#00ffff]'"
-                            >{{ node.content }}</span>
-                          </p>
+                        <p class="text-sm whitespace-pre-wrap">
+                          <span
+                            v-if="!block.content.trim()"
+                            class="text-[#555555] animate-pulse"
+                          >{{ getEmptyAssistantBubbleText(msg) }}</span>
+                          <span
+                            v-else
+                            v-for="(node, idx) in parseActionNodes(block.content)"
+                            :key="idx"
+                            :class="node.type === 'action' ? 'message-action-text message-action-text-npc message-action-inline' : 'text-[#00ffff]'"
+                          >{{ node.content }}</span>
+                        </p>
                           <p class="text-[#555555] text-xs mt-1">{{ formatTime(msg.timestamp) }}</p>
                         </div>
                       </div>
@@ -524,6 +534,8 @@ const chatContainer = ref<HTMLDivElement>()
 // 流式回复占位（用于在收到 tool_status 后替换占位文案，收到 content 首段后退出占位）
 const loadingPlaceholderActive = ref(false)
 const loadingPlaceholderMsgId = ref<number | null>(null)
+const loadingPlaceholderDefaultText = ref<string>('')
+const loadingPlaceholderLastToolText = ref<string>('')
 
 // 立绘布局模式：'global-center' 全局居中；'right-docked' 右侧对齐展开；'right-center' 右侧 300px 区域内居中（默认）
 const illustrationMode = ref<'global-center' | 'right-docked' | 'right-center'>('right-center')
@@ -1142,6 +1154,8 @@ const sendChatMessage = async () => {
   const npcMsgIndex = chatMessages.value.length - 1
   loadingPlaceholderActive.value = true
   loadingPlaceholderMsgId.value = npcMsg.id
+  loadingPlaceholderDefaultText.value = placeholderText
+  loadingPlaceholderLastToolText.value = ''
   // 系统通知注入：以 {text} 独立单行写入 NPC 对话开头
   let injectedSystemBlocks: string[] = []
   const systemPrefix = () =>
@@ -1200,6 +1214,7 @@ const sendChatMessage = async () => {
         }
 
         msg.content = `${systemPrefix()}${safeText}`
+        loadingPlaceholderLastToolText.value = safeText
         nextTick().then(scrollToBottom)
       },
       onSystem(text, _draft_id, _task_id) {
@@ -1234,6 +1249,8 @@ const sendChatMessage = async () => {
         const msg = chatMessages.value[npcMsgIndex]
         loadingPlaceholderActive.value = false
         loadingPlaceholderMsgId.value = null
+        loadingPlaceholderDefaultText.value = ''
+        loadingPlaceholderLastToolText.value = ''
         const prefix = systemPrefix()
         // 仅当最终回复与当前内容不同时才更新，避免重复赋值导致闪烁
         if (msg && msg.content !== `${prefix}${data.reply}`) {
@@ -1270,6 +1287,8 @@ const sendChatMessage = async () => {
         }
         loadingPlaceholderActive.value = false
         loadingPlaceholderMsgId.value = null
+        loadingPlaceholderDefaultText.value = ''
+        loadingPlaceholderLastToolText.value = ''
         nextTick().then(scrollToBottom)
       }
     })
@@ -1278,6 +1297,8 @@ const sendChatMessage = async () => {
     const msg = chatMessages.value[npcMsgIndex]
     loadingPlaceholderActive.value = false
     loadingPlaceholderMsgId.value = null
+    loadingPlaceholderDefaultText.value = ''
+    loadingPlaceholderLastToolText.value = ''
     if (msg) {
       msg.role = 'system'
       msg.content = '[系统 连接终端失败，请检查网络或API配置]'
@@ -1307,6 +1328,34 @@ const extractSystemBracesText = (raw: string) => {
   const end = raw.lastIndexOf('}')
   if (start >= 0 && end > start) return raw.slice(start + 1, end)
   return raw
+}
+
+// 当一条 assistant 消息只有系统块（{...}）没有对话文本时，仍然渲染 NPC 气泡
+const shouldRenderEmptyAssistantBubble = (msg: ChatMessage) => {
+  if (msg.role !== 'assistant') return false
+  const raw = msg.content ?? ''
+  if (!raw.trim()) return false
+  const lines = raw.split('\n')
+  let hasSystem = false
+  for (const line of lines) {
+    const t = line.trim()
+    if (!t) continue
+    if (t.startsWith('{')) {
+      hasSystem = true
+      continue
+    }
+    // 除了 {..} 之外出现任何非空内容，就说明不是“只有系统块”
+    return false
+  }
+  return hasSystem
+}
+
+const getEmptyAssistantBubbleText = (msg: ChatMessage) => {
+  // 只对当前正在流式生成的那条占位消息生效
+  if (msg.role !== 'assistant') return ''
+  if (loadingPlaceholderMsgId.value !== msg.id) return ''
+  if (loadingPlaceholderLastToolText.value) return loadingPlaceholderLastToolText.value
+  return loadingPlaceholderDefaultText.value || (isFirstMessage.value ? '[首次连接，等待终端加载...]' : '[正在链接终端...]')
 }
 
 // 是否为流式占位 NPC（用于在气泡上显示加载动画）
@@ -1362,6 +1411,9 @@ const messageToBlocks = (content: string): MessageBlock[] => {
   const lines = content.split('\n')
   const blocks: MessageBlock[] = []
   let bubbleBuffer = ''
+  let hasBubbleBlock = false
+  let hasSystemBlock = false
+  let hasStandaloneBlock = false
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? ''
     const trimmedStart = line.trimStart()
@@ -1369,6 +1421,7 @@ const messageToBlocks = (content: string): MessageBlock[] => {
       if (bubbleBuffer) {
         blocks.push({ type: 'bubble', content: bubbleBuffer })
         bubbleBuffer = ''
+        hasBubbleBlock = true
       }
       const closeIdx = line.indexOf('】')
       if (closeIdx >= 0) {
@@ -1378,10 +1431,12 @@ const messageToBlocks = (content: string): MessageBlock[] => {
       } else {
         blocks.push({ type: 'standalone', content: line })
       }
+      hasStandaloneBlock = true
     } else if (trimmedStart.startsWith('{')) {
       if (bubbleBuffer) {
         blocks.push({ type: 'bubble', content: bubbleBuffer })
         bubbleBuffer = ''
+        hasBubbleBlock = true
       }
       const closeIdx = line.indexOf('}')
       if (closeIdx >= 0) {
@@ -1391,12 +1446,19 @@ const messageToBlocks = (content: string): MessageBlock[] => {
       } else {
         blocks.push({ type: 'system', content: line })
       }
+      hasSystemBlock = true
     } else {
       if (bubbleBuffer) bubbleBuffer += '\n' + line
       else bubbleBuffer = line
     }
   }
-  if (bubbleBuffer) blocks.push({ type: 'bubble', content: bubbleBuffer })
+  if (bubbleBuffer) {
+    blocks.push({ type: 'bubble', content: bubbleBuffer })
+    hasBubbleBlock = true
+  } else if (!hasBubbleBlock && hasSystemBlock && !hasStandaloneBlock) {
+    // 只有 {} 系统通知（没有对话正文）时，补一个空 bubble 让 NPC 气泡仍然渲染
+    blocks.push({ type: 'bubble', content: '' })
+  }
   return blocks.length ? blocks : [{ type: 'bubble', content: '' }]
 }
 
