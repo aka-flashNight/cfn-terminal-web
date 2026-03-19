@@ -174,10 +174,6 @@
                       ></div>
                       <div class="relative bg-[#0b0b0b] border border-[#00ffff]/40 rounded-lg p-3">
                         <p class="text-sm whitespace-pre-wrap text-[#555555] animate-pulse">{{ msg.content }}</p>
-                        <p
-                          v-if="loadingPlaceholderToolName"
-                          class="text-[#666666] text-xs mt-1"
-                        >工具：{{ loadingPlaceholderToolName }}</p>
                         <p class="text-[#555555] text-xs mt-1">{{ formatTime(msg.timestamp) }}</p>
                       </div>
                     </div>
@@ -208,9 +204,18 @@
               <!-- 正常消息：按块渲染 -->
               <template v-else>
                 <template v-for="(block, blockIdx) in messageToBlocks(msg.content)" :key="blockIdx">
+                  <div
+                    v-if="block.type === 'system'"
+                    class="flex mt-5 mb-1 relative z-10 justify-center w-full"
+                  >
+                    <div class="text-xs text-[#555555] bg-[#111111] border border-[#333333] rounded-lg px-3 py-1.5 text-center">
+                      {{ extractSystemBracesText(block.content) }}
+                    </div>
+                  </div>
+
                   <!-- 单独成段的动作：与气泡左右对齐，上下居中留白，层级高于气泡光晕 -->
                   <div
-                    v-if="block.type === 'standalone'"
+                    v-else-if="block.type === 'standalone'"
                     class="flex mt-5 mb-1 relative z-10"
                     :class="msg.role === 'user' ? 'justify-start' : 'justify-end'"
                   >
@@ -519,7 +524,6 @@ const chatContainer = ref<HTMLDivElement>()
 // 流式回复占位（用于在收到 tool_status 后替换占位文案，收到 content 首段后退出占位）
 const loadingPlaceholderActive = ref(false)
 const loadingPlaceholderMsgId = ref<number | null>(null)
-const loadingPlaceholderToolName = ref<string | null>(null)
 
 // 立绘布局模式：'global-center' 全局居中；'right-docked' 右侧对齐展开；'right-center' 右侧 300px 区域内居中（默认）
 const illustrationMode = ref<'global-center' | 'right-docked' | 'right-center'>('right-center')
@@ -950,7 +954,6 @@ const selectSession = async (sessionId: string) => {
   chatMessages.value = []
   loadingPlaceholderActive.value = false
   loadingPlaceholderMsgId.value = null
-  loadingPlaceholderToolName.value = null
   favorability.value = null
   relationshipLevel.value = ''
   currentEmotion.value = '普通'
@@ -1063,7 +1066,6 @@ const exitSession = () => {
   chatMessages.value = []
   loadingPlaceholderActive.value = false
   loadingPlaceholderMsgId.value = null
-  loadingPlaceholderToolName.value = null
   favorability.value = null
   relationshipLevel.value = ''
   currentEmotion.value = '普通'
@@ -1140,7 +1142,10 @@ const sendChatMessage = async () => {
   const npcMsgIndex = chatMessages.value.length - 1
   loadingPlaceholderActive.value = true
   loadingPlaceholderMsgId.value = npcMsg.id
-  loadingPlaceholderToolName.value = null
+  // 系统通知注入：以 {text} 独立单行写入 NPC 对话开头
+  let injectedSystemBlocks: string[] = []
+  const systemPrefix = () =>
+    injectedSystemBlocks.length ? `${injectedSystemBlocks.join('\n')}\n` : ''
 
   try {
     const payload: Parameters<typeof sendMessageStream>[0] = {
@@ -1165,43 +1170,76 @@ const sendChatMessage = async () => {
         if (!msg) return
         // 第一次收到 content 时退出占位，之后追加（打字机）
         if (loadingPlaceholderActive.value && loadingPlaceholderMsgId.value === msg.id) {
-          msg.content = delta
+          msg.content = `${systemPrefix()}${delta}`
           loadingPlaceholderActive.value = false
           loadingPlaceholderMsgId.value = null
-          loadingPlaceholderToolName.value = null
         } else {
           msg.content += delta
         }
         nextTick().then(scrollToBottom)
       },
-      onToolStatus(text, tool_name) {
+      onToolStatus(text, _tool_name) {
         const msg = chatMessages.value[npcMsgIndex]
         if (!msg) return
         if (!loadingPlaceholderActive.value || loadingPlaceholderMsgId.value !== msg.id) return
 
-        // 后端已做 length 校验兜底，这里再做二次校验（可选）
-        const safeText =
-          (typeof text === 'string' && text.length <= 12)
-            ? text
-            : '正在思考……'
+        const safeTextRaw = typeof text === 'string' ? text : ''
+        const safeTextTrimmed = safeTextRaw.trimEnd()
+        const hasEllipsis = safeTextTrimmed.endsWith('…') || safeTextTrimmed.endsWith('...')
 
-        msg.content = safeText
-        loadingPlaceholderToolName.value = (typeof tool_name === 'string' && tool_name.trim()) ? tool_name.trim() : null
+        // 后端已做 length 校验兜底，这里再做二次校验
+        let safeText: string
+        if (!safeTextTrimmed || safeTextTrimmed.length > 12) {
+          safeText = '正在思考……'
+        } else if (hasEllipsis) {
+          safeText = safeTextTrimmed
+        } else {
+          // 为满足 UI 预期，补一个省略号后缀（保持总长度在 12 内）
+          const base = safeTextTrimmed.length >= 12 ? safeTextTrimmed.slice(0, 11) : safeTextTrimmed
+          safeText = `${base}…`
+        }
+
+        msg.content = `${systemPrefix()}${safeText}`
         nextTick().then(scrollToBottom)
       },
-      onSystem(text, draft_id, task_id) {
-        pushSystemMessage(text, draft_id, task_id)
+      onSystem(text, _draft_id, _task_id) {
+        const msg = chatMessages.value[npcMsgIndex]
+        if (!msg) return
+        const sysText = typeof text === 'string' ? text : ''
+        if (!sysText) return
+
+        // { [任务草案已更新] } 这种形式入栈，渲染时只展示中间的 [... ]
+        const block = `{${sysText}}`
+        if (!injectedSystemBlocks.includes(block)) injectedSystemBlocks.push(block)
+
+        // 仅在占位阶段改写当前 assistant 消息开头
+        if (loadingPlaceholderActive.value && loadingPlaceholderMsgId.value === msg.id) {
+          // 保留当前占位内容（可能是 tool_status 的 text），只是在前面插入 system blocks
+          const lines = msg.content.split('\n')
+          let idx = 0
+          while (idx < lines.length) {
+            const l = (lines[idx] ?? '').trimStart()
+            if (l.startsWith('{') && l.includes('}')) idx++
+            else break
+          }
+          const tail = lines.slice(idx).join('\n').trim()
+          msg.content = `${injectedSystemBlocks.join('\n')}\n${tail || placeholderText}`
+        } else {
+          // 理论上 system 在 content 前到达；兜底：直接拼到当前开头
+          msg.content = `${systemPrefix()}${msg.content}`
+        }
         nextTick().then(scrollToBottom)
       },
       onDone(data) {
         const msg = chatMessages.value[npcMsgIndex]
         loadingPlaceholderActive.value = false
         loadingPlaceholderMsgId.value = null
-        loadingPlaceholderToolName.value = null
+        const prefix = systemPrefix()
         // 仅当最终回复与当前内容不同时才更新，避免重复赋值导致闪烁
-        if (msg && msg.content !== data.reply) {
-          msg.content = data.reply
+        if (msg && msg.content !== `${prefix}${data.reply}`) {
+          msg.content = `${prefix}${data.reply}`
         }
+        injectedSystemBlocks = []
         const prevFavor = favorability.value
         favorability.value = data.favorability
         relationshipLevel.value = data.relationship_level
@@ -1219,9 +1257,6 @@ const sendChatMessage = async () => {
       },
       onError(error) {
         const msg = chatMessages.value[npcMsgIndex]
-        loadingPlaceholderActive.value = false
-        loadingPlaceholderMsgId.value = null
-        loadingPlaceholderToolName.value = null
         if (msg) {
           msg.role = 'system'
           msg.content = `[系统 ${error}]`
@@ -1233,6 +1268,8 @@ const sendChatMessage = async () => {
             timestamp: Math.floor(Date.now() / 1000)
           })
         }
+        loadingPlaceholderActive.value = false
+        loadingPlaceholderMsgId.value = null
         nextTick().then(scrollToBottom)
       }
     })
@@ -1241,7 +1278,6 @@ const sendChatMessage = async () => {
     const msg = chatMessages.value[npcMsgIndex]
     loadingPlaceholderActive.value = false
     loadingPlaceholderMsgId.value = null
-    loadingPlaceholderToolName.value = null
     if (msg) {
       msg.role = 'system'
       msg.content = '[系统 连接终端失败，请检查网络或API配置]'
@@ -1265,23 +1301,20 @@ const extractSystemBracketText = (raw: string) => {
   return matches && matches.length ? matches.join(' ') : raw
 }
 
-// 推送系统消息到聊天流（用于 system 事件）
-const pushSystemMessage = (text: string, draft_id?: string | null, task_id?: string | null) => {
-  chatMessages.value.push({
-    id:
-      Date.now() +
-      Math.floor(Math.random() * 1000) +
-      (typeof draft_id === 'string' ? draft_id.length : 0) +
-      (typeof task_id === 'string' ? task_id.length : 0),
-    role: 'system',
-    content: text,
-    timestamp: Math.floor(Date.now() / 1000)
-  })
+// 从 { ... } 中提取内部文本（例如 `{[任务草案已更新]}` -> `[任务草案已更新]`）
+const extractSystemBracesText = (raw: string) => {
+  const start = raw.indexOf('{')
+  const end = raw.lastIndexOf('}')
+  if (start >= 0 && end > start) return raw.slice(start + 1, end)
+  return raw
 }
 
 // 是否为流式占位 NPC（用于在气泡上显示加载动画）
 const isLoadingPlaceholder = (msg: ChatMessage) =>
-  loadingPlaceholderActive.value && loadingPlaceholderMsgId.value === msg.id && msg.role === 'assistant'
+  loadingPlaceholderActive.value &&
+  loadingPlaceholderMsgId.value === msg.id &&
+  msg.role === 'assistant' &&
+  !msg.content.trimStart().startsWith('{')
 
 // 流式/静态消息解析：【】内为动作描写，方括号不显示，仅内容用 action 样式
 type ContentNode = { type: 'action' | 'text'; content: string }
@@ -1319,8 +1352,11 @@ const focusMainInput = () => {
   mainInputRef.value?.focus()
 }
 
-// 将消息内容拆成「单独成段动作」与「气泡内段落」；以【开头的行在】后强制分段，】后内容进气泡
-type MessageBlock = { type: 'standalone' | 'bubble'; content: string }
+// 将消息内容拆成「单独成段动作/系统通知」与「气泡内段落」
+// - 行以「【」开头：动作 standalone
+// - 行以「{」开头：系统通知 system
+// - 其他内容：bubble
+type MessageBlock = { type: 'standalone' | 'system' | 'bubble'; content: string }
 const messageToBlocks = (content: string): MessageBlock[] => {
   if (!content) return [{ type: 'bubble', content: '' }]
   const lines = content.split('\n')
@@ -1341,6 +1377,19 @@ const messageToBlocks = (content: string): MessageBlock[] => {
         if (rest) bubbleBuffer = rest
       } else {
         blocks.push({ type: 'standalone', content: line })
+      }
+    } else if (trimmedStart.startsWith('{')) {
+      if (bubbleBuffer) {
+        blocks.push({ type: 'bubble', content: bubbleBuffer })
+        bubbleBuffer = ''
+      }
+      const closeIdx = line.indexOf('}')
+      if (closeIdx >= 0) {
+        blocks.push({ type: 'system', content: line.slice(0, closeIdx + 1) })
+        const rest = line.slice(closeIdx + 1).trim()
+        if (rest) bubbleBuffer = rest
+      } else {
+        blocks.push({ type: 'system', content: line })
       }
     } else {
       if (bubbleBuffer) bubbleBuffer += '\n' + line
