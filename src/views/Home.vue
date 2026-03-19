@@ -1148,7 +1148,8 @@ const sendChatMessage = async () => {
     id: Date.now() + 1,
     role: 'assistant',
     content: placeholderText,
-    timestamp: Math.floor(Date.now() / 1000)
+    timestamp: Math.floor(Date.now() / 1000),
+    bubblePlaceholder: placeholderText
   }
   chatMessages.value.push(npcMsg)
   const npcMsgIndex = chatMessages.value.length - 1
@@ -1190,6 +1191,8 @@ const sendChatMessage = async () => {
         } else {
           msg.content += delta
         }
+        // 收到首段正文（任意非空 delta）后清除气泡占位，避免与真实对话混用
+        if (delta.length > 0) msg.bubblePlaceholder = undefined
         nextTick().then(scrollToBottom)
       },
       onToolStatus(text, _tool_name) {
@@ -1214,6 +1217,7 @@ const sendChatMessage = async () => {
         }
 
         msg.content = `${systemPrefix()}${safeText}`
+        msg.bubblePlaceholder = safeText
         loadingPlaceholderLastToolText.value = safeText
         nextTick().then(scrollToBottom)
       },
@@ -1247,14 +1251,25 @@ const sendChatMessage = async () => {
       },
       onDone(data) {
         const msg = chatMessages.value[npcMsgIndex]
+        const prefix = systemPrefix()
+        const replyStr = typeof data.reply === 'string' ? data.reply : ''
+        const replyTrimmed = replyStr.trim()
+
+        // 在清空 ref 之前：若最终无正文（仅 {...}），把 tool_status 文案与默认连接提示持久化到消息上，供空气泡展示
+        if (msg && !replyTrimmed) {
+          msg.bubblePlaceholder =
+            loadingPlaceholderLastToolText.value ||
+            '正在思考……'
+        }
+
         loadingPlaceholderActive.value = false
         loadingPlaceholderMsgId.value = null
         loadingPlaceholderDefaultText.value = ''
         loadingPlaceholderLastToolText.value = ''
-        const prefix = systemPrefix()
+
         // 仅当最终回复与当前内容不同时才更新，避免重复赋值导致闪烁
-        if (msg && msg.content !== `${prefix}${data.reply}`) {
-          msg.content = `${prefix}${data.reply}`
+        if (msg && msg.content !== `${prefix}${replyStr}`) {
+          msg.content = `${prefix}${replyStr}`
         }
         injectedSystemBlocks = []
         const prevFavor = favorability.value
@@ -1351,11 +1366,19 @@ const shouldRenderEmptyAssistantBubble = (msg: ChatMessage) => {
 }
 
 const getEmptyAssistantBubbleText = (msg: ChatMessage) => {
-  // 只对当前正在流式生成的那条占位消息生效
   if (msg.role !== 'assistant') return ''
-  if (loadingPlaceholderMsgId.value !== msg.id) return ''
-  if (loadingPlaceholderLastToolText.value) return loadingPlaceholderLastToolText.value
-  return loadingPlaceholderDefaultText.value || (isFirstMessage.value ? '[首次连接，等待终端加载...]' : '[正在链接终端...]')
+  // 流结束后 onDone 已清空占位 ref：优先用消息上持久化的 bubblePlaceholder
+  if (msg.bubblePlaceholder?.trim()) return msg.bubblePlaceholder.trim()
+  // 仅系统块（{...}）无正文：统一用「正在思考……」
+  if (shouldRenderEmptyAssistantBubble(msg)) return '正在思考……'
+  if (loadingPlaceholderMsgId.value === msg.id) {
+    if (loadingPlaceholderLastToolText.value) return loadingPlaceholderLastToolText.value
+    return (
+      loadingPlaceholderDefaultText.value ||
+      (isFirstMessage.value ? '[首次连接，等待终端加载...]' : '[正在链接终端...]')
+    )
+  }
+  return isFirstMessage.value ? '[首次连接，等待终端加载...]' : '[正在链接终端...]'
 }
 
 // 是否为流式占位 NPC（用于在气泡上显示加载动画）

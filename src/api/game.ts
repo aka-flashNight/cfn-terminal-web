@@ -37,6 +37,11 @@ export interface ChatMessage {
   role: 'user' | 'assistant' | 'system'
   content: string
   timestamp: number
+  /**
+   * 前端专用：当本条 assistant 仅有 `{...}` 系统块、气泡内无正文时，气泡里显示的占位文案
+   * （优先来自最后一次 tool_status，否则为默认「连接终端」类提示）
+   */
+  bubblePlaceholder?: string
 }
 
 // 历史记录响应
