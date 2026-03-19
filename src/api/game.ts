@@ -140,6 +140,7 @@ export interface SendMessageStreamCallbacks {
   onToolStatus(text: string, tool_name: string | null): void
   onSystem(text: string, draft_id?: string | null, task_id?: string | null): void
   onError(error: string): void
+  onCancelled?(): void
 }
 
 /**
@@ -148,35 +149,40 @@ export interface SendMessageStreamCallbacks {
  */
 export async function sendMessageStream(
   data: NPCChatRequest,
-  callbacks: SendMessageStreamCallbacks
+  callbacks: SendMessageStreamCallbacks,
+  options?: { signal?: AbortSignal }
 ): Promise<void> {
   const url = `${BASE_URL || ''}/api/game/ask?stream=true`
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data)
-  })
-
-  if (!response.ok) {
-    const text = await response.text()
-    callbacks.onError(text || `请求失败 ${response.status}`)
-    return
-  }
-
-  const reader = response.body?.getReader()
-  if (!reader) {
-    callbacks.onError('无法读取响应流')
-    return
-  }
-
-  const decoder = new TextDecoder()
-  let buffer = ''
-  let doneReceived = false
+  let reader: ReadableStreamDefaultReader<Uint8Array> | null = null
 
   try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+      signal: options?.signal
+    })
+
+    if (!response.ok) {
+      const text = await response.text()
+      callbacks.onError(text || `请求失败 ${response.status}`)
+      return
+    }
+
+    reader = response.body?.getReader() ?? null
+    if (!reader) {
+      callbacks.onError('无法读取响应流')
+      return
+    }
+
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let doneReceived = false
+
     while (true) {
       const { value, done } = await reader.read()
       if (done) break
+
       buffer += decoder.decode(value, { stream: true })
       const parts = buffer.split('\n\n')
       buffer = parts.pop() ?? ''
@@ -221,11 +227,16 @@ export async function sendMessageStream(
       }
     }
 
-    if (!doneReceived) {
-      callbacks.onError('回复未完成')
+    if (!doneReceived) callbacks.onError('回复未完成')
+  } catch (error: unknown) {
+    // AbortController 取消：不当成系统错误展示给用户
+    if ((error as any)?.name === 'AbortError') {
+      callbacks.onCancelled?.()
+      return
     }
+    throw error
   } finally {
-    reader.releaseLock()
+    reader?.releaseLock()
   }
 }
 

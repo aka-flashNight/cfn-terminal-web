@@ -404,11 +404,17 @@
               >{{ inputMessage.length }}/500</span>
             </div>
             <button
-              @click="sendChatMessage"
-              :disabled="!inputMessage.trim() || isLoading"
-              class="px-6 py-3 bg-[#00ff41]/20 border border-[#00ff41] text-[#00ff41] rounded-lg hover:bg-[#00ff41]/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed font-mono"
+              type="button"
+              @click="isLoading ? cancelChatMessage() : sendChatMessage()"
+              :disabled="!isLoading && !inputMessage.trim()"
+              class="px-6 py-3 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed font-mono"
+              :class="
+                isLoading
+                  ? 'bg-[#ff0033]/20 border border-[#ff0033] text-[#ff0033] hover:bg-[#ff0033]/30'
+                  : 'bg-[#00ff41]/20 border border-[#00ff41] text-[#00ff41] hover:bg-[#00ff41]/30'
+              "
             >
-              发送
+              {{ isLoading ? '停止' : '发送' }}
             </button>
           </div>
         </div>
@@ -524,6 +530,7 @@ const actionInputExpanded = ref(false)
 const actionInput = ref('')
 const mainInputRef = ref<HTMLInputElement | null>(null)
 const isLoading = ref(false)
+const abortControllerRef = ref<AbortController | null>(null)
 const isFirstMessage = ref(true)
 const favorability = ref<number | null>(null)
 const relationshipLevel = ref('')
@@ -1121,6 +1128,11 @@ const createNewSession = async (title: string) => {
 }
 
 // 发送消息
+const cancelChatMessage = () => {
+  if (!isLoading.value) return
+  abortControllerRef.value?.abort()
+}
+
 const sendChatMessage = async () => {
   if (!inputMessage.value.trim() || isLoading.value || !currentSessionId.value) return
 
@@ -1130,6 +1142,7 @@ const sendChatMessage = async () => {
   inputMessage.value = ''
   actionInput.value = ''
   isLoading.value = true
+  abortControllerRef.value = new AbortController()
 
   // 添加用户消息到列表（临时）
   const tempUserMsg: ChatMessage = {
@@ -1308,8 +1321,33 @@ const sendChatMessage = async () => {
         loadingPlaceholderDefaultText.value = ''
         loadingPlaceholderLastToolText.value = ''
         nextTick().then(scrollToBottom)
+      },
+      onCancelled() {
+        const msg = chatMessages.value[npcMsgIndex]
+        const prefix = systemPrefix()
+        const cancelledTag = '（已终止）'
+
+        // 若取消发生在“占位阶段”（还没收到第一段 content），把占位文本改成明确的终止提示
+        if (msg && loadingPlaceholderActive.value && loadingPlaceholderMsgId.value === msg.id) {
+          msg.content = `${prefix}${cancelledTag}`
+          msg.bubblePlaceholder = cancelledTag
+        } else if (msg) {
+          // 若已经开始输出部分正文，则不覆盖正文，只做“已终止”标记
+          const raw = msg.content ?? ''
+          const trimmed = raw.trimEnd()
+          if (!trimmed.endsWith(cancelledTag)) {
+            msg.content = trimmed + (trimmed ? '\n' : '') + cancelledTag
+          }
+        }
+
+        loadingPlaceholderActive.value = false
+        loadingPlaceholderMsgId.value = null
+        loadingPlaceholderDefaultText.value = ''
+        loadingPlaceholderLastToolText.value = ''
+        injectedSystemBlocks = []
+        nextTick().then(scrollToBottom)
       }
-    })
+    }, { signal: abortControllerRef.value?.signal })
   } catch (error) {
     console.error('Failed to send message:', error)
     const msg = chatMessages.value[npcMsgIndex]
@@ -1331,6 +1369,7 @@ const sendChatMessage = async () => {
     nextTick().then(scrollToBottom)
   } finally {
     isLoading.value = false
+    abortControllerRef.value = null
   }
 }
 
