@@ -1326,14 +1326,9 @@ const sendChatMessage = async (options?: {
         const msg = chatMessages.value[npcMsgIndex]
         const prefix = systemPrefix()
         const replyStr = typeof data.reply === 'string' ? data.reply : ''
-        const replyTrimmed = replyStr.trim()
 
-        // 在清空 ref 之前：若最终无正文（仅 {...}），把 tool_status 文案与默认连接提示持久化到消息上，供空气泡展示
-        if (msg && !replyTrimmed) {
-          msg.bubblePlaceholder =
-            loadingPlaceholderLastToolText.value ||
-            '正在思考……'
-        }
+        // 流结束：不再把「正在思考」类占位持久化到消息上；仅系统块时只保留系统行，不补空气泡
+        if (msg) msg.bubblePlaceholder = undefined
 
         loadingPlaceholderActive.value = false
         loadingPlaceholderMsgId.value = null
@@ -1457,9 +1452,10 @@ const extractSystemBracesText = (raw: string) => {
   return raw
 }
 
-// 当一条 assistant 消息只有系统块（{...}）没有对话文本时，仍然渲染 NPC 气泡
+// 当一条 assistant 消息只有系统块（{...}）没有对话文本时，仅在本次流式尚未结束时渲染占位 NPC 气泡（思考中 / 链路等）
 const shouldRenderEmptyAssistantBubble = (msg: ChatMessage) => {
   if (msg.role !== 'assistant') return false
+  if (!loadingPlaceholderActive.value || loadingPlaceholderMsgId.value !== msg.id) return false
   const raw = msg.content ?? ''
   if (!raw.trim()) return false
   const lines = raw.split('\n')
@@ -1479,9 +1475,9 @@ const shouldRenderEmptyAssistantBubble = (msg: ChatMessage) => {
 
 const getEmptyAssistantBubbleText = (msg: ChatMessage) => {
   if (msg.role !== 'assistant') return ''
-  // 流结束后 onDone 已清空占位 ref：优先用消息上持久化的 bubblePlaceholder
+  // 流式过程中：tool_status 等写在 bubblePlaceholder 上
   if (msg.bubblePlaceholder?.trim()) return msg.bubblePlaceholder.trim()
-  // 仅系统块（{...}）无正文：统一用「正在思考……」
+  // 仅系统块且无正文、且仍在占位流中：与 shouldRenderEmptyAssistantBubble 一致，用思考文案
   if (shouldRenderEmptyAssistantBubble(msg)) return '正在思考……'
   if (loadingPlaceholderMsgId.value === msg.id) {
     if (loadingPlaceholderLastToolText.value) return loadingPlaceholderLastToolText.value
