@@ -556,6 +556,10 @@ const loadingPlaceholderActive = ref(false)
 const loadingPlaceholderMsgId = ref<number | null>(null)
 const loadingPlaceholderDefaultText = ref<string>('')
 const loadingPlaceholderLastToolText = ref<string>('')
+// 与 loadingPlaceholder 不同：从首段 content 到 onDone 之间仍为 true，用于「仅系统行」时继续显示等待气泡
+const streamingAssistantMsgId = ref<number | null>(null)
+// 系统提示与正式对话之间的占位措辞（流式未结束、尚无正文时）
+const WAITING_FOR_TERMINAL_RESPONSE = '等待终端响应……'
 
 // 立绘布局模式：'global-center' 全局居中；'right-docked' 右侧对齐展开；'right-center' 右侧 300px 区域内居中（默认）
 const illustrationMode = ref<'global-center' | 'right-docked' | 'right-center'>('right-center')
@@ -986,6 +990,7 @@ const selectSession = async (sessionId: string) => {
   chatMessages.value = []
   loadingPlaceholderActive.value = false
   loadingPlaceholderMsgId.value = null
+  streamingAssistantMsgId.value = null
   favorability.value = null
   relationshipLevel.value = ''
   currentEmotion.value = '普通'
@@ -1098,6 +1103,7 @@ const exitSession = () => {
   chatMessages.value = []
   loadingPlaceholderActive.value = false
   loadingPlaceholderMsgId.value = null
+  streamingAssistantMsgId.value = null
   favorability.value = null
   relationshipLevel.value = ''
   currentEmotion.value = '普通'
@@ -1227,6 +1233,7 @@ const sendChatMessage = async (options?: {
   }
   loadingPlaceholderActive.value = true
   loadingPlaceholderMsgId.value = npcMsg.id
+  streamingAssistantMsgId.value = npcMsg.id
   loadingPlaceholderDefaultText.value = placeholderText
   loadingPlaceholderLastToolText.value = ''
   // 系统通知注入：以 {text} 独立单行写入 NPC 对话开头
@@ -1280,7 +1287,7 @@ const sendChatMessage = async (options?: {
         // 后端已做 length 校验兜底，这里再做二次校验
         let safeText: string
         if (!safeTextTrimmed || safeTextTrimmed.length > 12) {
-          safeText = '正在思考……'
+          safeText = WAITING_FOR_TERMINAL_RESPONSE
         } else if (hasEllipsis) {
           safeText = safeTextTrimmed
         } else {
@@ -1323,11 +1330,12 @@ const sendChatMessage = async (options?: {
         nextTick().then(scrollToBottom)
       },
       onDone(data) {
+        streamingAssistantMsgId.value = null
         const msg = chatMessages.value[npcMsgIndex]
         const prefix = systemPrefix()
         const replyStr = typeof data.reply === 'string' ? data.reply : ''
 
-        // 流结束：不再把「正在思考」类占位持久化到消息上；仅系统块时只保留系统行，不补空气泡
+        // 流结束：不持久化占位文案；仅系统块时只保留系统行，不补空气泡
         if (msg) msg.bubblePlaceholder = undefined
 
         loadingPlaceholderActive.value = false
@@ -1359,6 +1367,7 @@ const sendChatMessage = async (options?: {
         nextTick().then(scrollToBottom)
       },
       onError(error) {
+        streamingAssistantMsgId.value = null
         const msg = chatMessages.value[npcMsgIndex]
         if (msg) {
           msg.role = 'system'
@@ -1381,6 +1390,7 @@ const sendChatMessage = async (options?: {
         nextTick().then(scrollToBottom)
       },
       onCancelled() {
+        streamingAssistantMsgId.value = null
         const msg = chatMessages.value[npcMsgIndex]
         const prefix = systemPrefix()
         const cancelledTag = '（已终止）'
@@ -1412,6 +1422,7 @@ const sendChatMessage = async (options?: {
     }, { signal: abortControllerRef.value?.signal })
   } catch (error) {
     console.error('Failed to send message:', error)
+    streamingAssistantMsgId.value = null
     const msg = chatMessages.value[npcMsgIndex]
     loadingPlaceholderActive.value = false
     loadingPlaceholderMsgId.value = null
@@ -1433,6 +1444,7 @@ const sendChatMessage = async (options?: {
     retryQueryByAssistantMsgId.value = nextMap
     nextTick().then(scrollToBottom)
   } finally {
+    streamingAssistantMsgId.value = null
     isLoading.value = false
     abortControllerRef.value = null
   }
@@ -1452,10 +1464,10 @@ const extractSystemBracesText = (raw: string) => {
   return raw
 }
 
-// 当一条 assistant 消息只有系统块（{...}）没有对话文本时，仅在本次流式尚未结束时渲染占位 NPC 气泡（思考中 / 链路等）
+// 当一条 assistant 消息只有系统块（{...}）没有对话文本时，仅在本次请求流式尚未结束时渲染占位 NPC 气泡（与首段 content 后 loadingPlaceholder 是否仍激活无关）
 const shouldRenderEmptyAssistantBubble = (msg: ChatMessage) => {
   if (msg.role !== 'assistant') return false
-  if (!loadingPlaceholderActive.value || loadingPlaceholderMsgId.value !== msg.id) return false
+  if (streamingAssistantMsgId.value !== msg.id) return false
   const raw = msg.content ?? ''
   if (!raw.trim()) return false
   const lines = raw.split('\n')
@@ -1477,8 +1489,8 @@ const getEmptyAssistantBubbleText = (msg: ChatMessage) => {
   if (msg.role !== 'assistant') return ''
   // 流式过程中：tool_status 等写在 bubblePlaceholder 上
   if (msg.bubblePlaceholder?.trim()) return msg.bubblePlaceholder.trim()
-  // 仅系统块且无正文、且仍在占位流中：与 shouldRenderEmptyAssistantBubble 一致，用思考文案
-  if (shouldRenderEmptyAssistantBubble(msg)) return '正在思考……'
+  // 仅系统块且无正文、且仍在本次流式请求中：与 shouldRenderEmptyAssistantBubble 一致
+  if (shouldRenderEmptyAssistantBubble(msg)) return WAITING_FOR_TERMINAL_RESPONSE
   if (loadingPlaceholderMsgId.value === msg.id) {
     if (loadingPlaceholderLastToolText.value) return loadingPlaceholderLastToolText.value
     return (
