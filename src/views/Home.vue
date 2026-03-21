@@ -5,6 +5,7 @@
       :sessions="sessions"
       :current-session-id="currentSessionId"
       :loading-sessions="loadingSessions"
+      :session-switch-locked="isLoading"
       :select-session="selectSession"
       :open-session-menu="openSessionMenu"
       @open-settings="showSettings = true"
@@ -26,6 +27,7 @@
           :relationship-level="relationshipLevel"
           :show-favor-change="showFavorChange"
           :favor-change-value="favorChangeValue"
+          :exit-locked="isLoading"
           @exit="exitSession"
         />
 
@@ -985,6 +987,7 @@ const loadSessions = async (isRetry: boolean = false) => {
 
 // 选择会话
 const selectSession = async (sessionId: string) => {
+  if (isLoading.value) return
   currentSessionId.value = sessionId
   // 重置聊天状态
   chatMessages.value = []
@@ -1099,6 +1102,7 @@ const onChatScroll = () => {
 
 // 退出会话
 const exitSession = () => {
+  if (isLoading.value) return
   currentSessionId.value = ''
   chatMessages.value = []
   loadingPlaceholderActive.value = false
@@ -1619,6 +1623,7 @@ const scrollToBottom = () => {
 
 // 打开会话操作菜单
 const openSessionMenu = (session: Session, event: MouseEvent) => {
+  if (isLoading.value) return
   selectedSession.value = session
   const target = event.currentTarget as HTMLElement | null
   if (target) {

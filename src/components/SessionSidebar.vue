@@ -27,8 +27,10 @@
           class="group relative"
         >
           <button
+            type="button"
+            :disabled="sessionSwitchLocked"
             @click="onSelectSession(session.session_id)"
-            class="w-full text-left p-3 rounded border transition-all pr-8"
+            class="w-full text-left p-3 rounded border transition-all pr-8 disabled:opacity-50 disabled:cursor-not-allowed"
             :class="currentSessionId === session.session_id
               ? 'bg-[#00ff41]/10 border-[#00ff41]/50 text-[#00ff41]'
               : 'bg-[#1a1a1a] border-transparent text-gray-400 hover:bg-[#252525] hover:text-[#00ff41]'"
@@ -41,8 +43,10 @@
             class="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity"
           >
             <button
+              type="button"
+              :disabled="sessionSwitchLocked"
               @click.stop="onOpenSessionMenu(session, $event)"
-              class="p-1.5 text-[#444444] hover:text-[#00ff41] hover:bg-[#00ff41]/10 rounded transition-all duration-150 ease-out"
+              class="p-1.5 text-[#444444] hover:text-[#00ff41] hover:bg-[#00ff41]/10 rounded transition-all duration-150 ease-out disabled:opacity-40 disabled:pointer-events-none disabled:hover:text-[#444444] disabled:hover:bg-transparent"
             >
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
                 <circle cx="12" cy="6" r="1.5" />
@@ -71,23 +75,30 @@
 <script setup lang="ts">
 import type { Session } from '../api/game'
 
-const props = defineProps<{
-  sessions: Session[]
-  currentSessionId: string
-  loadingSessions: boolean
-  selectSession: (sessionId: string) => void
-  openSessionMenu: (session: Session, event: MouseEvent) => void
-}>()
+const props = withDefaults(
+  defineProps<{
+    sessions: Session[]
+    currentSessionId: string
+    loadingSessions: boolean
+    /** 流式回复进行中：禁止切换会话，避免状态错乱 */
+    sessionSwitchLocked?: boolean
+    selectSession: (sessionId: string) => void
+    openSessionMenu: (session: Session, event: MouseEvent) => void
+  }>(),
+  { sessionSwitchLocked: false }
+)
 
 defineEmits<{
   (e: 'open-settings'): void
 }>()
 
 const onSelectSession = (sessionId: string) => {
+  if (props.sessionSwitchLocked) return
   props.selectSession(sessionId)
 }
 
 const onOpenSessionMenu = (session: Session, event: MouseEvent) => {
+  if (props.sessionSwitchLocked) return
   props.openSessionMenu(session, event)
 }
 </script>

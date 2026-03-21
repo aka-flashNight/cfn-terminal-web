@@ -3,8 +3,10 @@
   <div class="p-4 border-b border-[#333333] flex items-center justify-between bg-[#111111]/50">
     <div class="flex items-center gap-3">
       <button
+        type="button"
+        :disabled="exitLocked"
         @click="$emit('exit')"
-        class="text-[#555555] hover:text-[#ff0040] transition-colors text-sm font-mono"
+        class="text-[#555555] hover:text-[#ff0040] transition-colors text-sm font-mono disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-[#555555]"
       >
         ← 返回
       </button>
@@ -39,14 +41,19 @@
 </template>
 
 <script setup lang="ts">
-defineProps<{
-  currentSessionTitle: string
-  currentSessionNpc: string
-  favorability: number | null
-  relationshipLevel: string
-  showFavorChange: boolean
-  favorChangeValue: number
-}>()
+withDefaults(
+  defineProps<{
+    currentSessionTitle: string
+    currentSessionNpc: string
+    favorability: number | null
+    relationshipLevel: string
+    showFavorChange: boolean
+    favorChangeValue: number
+    /** 流式回复进行中：禁止返回会话列表 */
+    exitLocked?: boolean
+  }>(),
+  { exitLocked: false }
+)
 
 defineEmits<{
   (e: 'exit'): void
