@@ -597,6 +597,81 @@ const illustrationPendingUrl = ref('')
 const illustrationOffset = ref({ x: 0, y: 0 })
 const illustrationDragging = ref(false)
 
+// --- 立绘位置持久化（localStorage）---
+// 以「会话 + NPC + 情绪」为粒度保存（下次打开同一页面语境时恢复到上次位置）
+const ILLUSTRATION_LAYOUT_STORAGE_PREFIX = 'illustration-layout-v1'
+const ILLUSTRATION_DEFAULT_MODE: 'global-center' | 'right-docked' | 'right-center' = 'right-center'
+const ILLUSTRATION_DEFAULT_LAYOUT = {
+  mode: ILLUSTRATION_DEFAULT_MODE,
+  offset: { x: 0, y: 0 }
+}
+const isRestoringIllustrationLayout = ref(false)
+const pendingIllustrationLayout = ref<typeof ILLUSTRATION_DEFAULT_LAYOUT | null>(null)
+const pendingIllustrationLayoutForUrl = ref('')
+
+function isValidIllustrationMode(v: unknown): v is 'global-center' | 'right-docked' | 'right-center' {
+  return v === 'global-center' || v === 'right-docked' || v === 'right-center'
+}
+
+function getIllustrationLayoutStorageKey() {
+  const sessionId = currentSessionId.value
+  const npc = currentSessionNpc.value
+  const emotion = currentEmotion.value
+  if (!sessionId || !npc || !emotion) return null
+  return `${ILLUSTRATION_LAYOUT_STORAGE_PREFIX}:${sessionId}:${npc}:${emotion}`
+}
+
+function applyIllustrationLayout(layout: typeof ILLUSTRATION_DEFAULT_LAYOUT) {
+  isRestoringIllustrationLayout.value = true
+  illustrationMode.value = layout.mode
+  illustrationOffset.value = { x: layout.offset.x, y: layout.offset.y }
+  // 下一行不需要 await；仅用于阻止保存逻辑在恢复期间触发
+  isRestoringIllustrationLayout.value = false
+}
+
+function resolveSavedIllustrationLayout(): typeof ILLUSTRATION_DEFAULT_LAYOUT {
+  const key = getIllustrationLayoutStorageKey()
+  if (!key) return ILLUSTRATION_DEFAULT_LAYOUT
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return ILLUSTRATION_DEFAULT_LAYOUT
+    const data = JSON.parse(raw) as unknown
+    if (
+      typeof data === 'object' &&
+      data !== null &&
+      'mode' in data &&
+      'offset' in data &&
+      isValidIllustrationMode((data as any).mode) &&
+      typeof (data as any).offset?.x === 'number' &&
+      typeof (data as any).offset?.y === 'number'
+    ) {
+      return {
+        mode: (data as any).mode,
+        offset: { x: (data as any).offset.x, y: (data as any).offset.y }
+      }
+    }
+    return ILLUSTRATION_DEFAULT_LAYOUT
+  } catch {
+    return ILLUSTRATION_DEFAULT_LAYOUT
+  }
+}
+
+function saveCurrentIllustrationLayoutToStorage() {
+  if (isRestoringIllustrationLayout.value) return
+  const key = getIllustrationLayoutStorageKey()
+  if (!key) return
+  try {
+    const payload = {
+      mode: illustrationMode.value,
+      offset: { x: illustrationOffset.value.x, y: illustrationOffset.value.y },
+      updatedAt: Date.now()
+    }
+    localStorage.setItem(key, JSON.stringify(payload))
+  } catch {
+    // localStorage 可能被禁用/配额满，忽略即可
+  }
+}
+
 // 记录头像加载失败的NPC（用于隐藏无头像的NPC）
 const npcsWithFailedAvatar = ref<Set<string>>(new Set())
 
@@ -831,6 +906,12 @@ async function onPendingIllustrationLoad() {
   if (bounds) {
     illustrationContentBounds.value = bounds
   }
+  // 表情切换过程中使用 pending 预加载时，这里再恢复到对应立绘的上次位置
+  if (pendingIllustrationLayoutForUrl.value === url && pendingIllustrationLayout.value) {
+    applyIllustrationLayout(pendingIllustrationLayout.value)
+  } else {
+    applyIllustrationLayout(ILLUSTRATION_DEFAULT_LAYOUT)
+  }
   illustrationDisplayUrl.value = url
   illustrationPendingUrl.value = ''
   illustrationReady.value = true
@@ -840,6 +921,8 @@ async function onPendingIllustrationLoad() {
 // 后台预加载立绘失败（如 404）：标记当前 NPC+情绪 无效并隐藏立绘
 function onPendingIllustrationError() {
   illustrationPendingUrl.value = ''
+  pendingIllustrationLayout.value = null
+  pendingIllustrationLayoutForUrl.value = ''
   handleIllustrationError()
 }
 
@@ -847,6 +930,7 @@ function onPendingIllustrationError() {
 const setIllustrationMode = (mode: 'global-center' | 'right-docked' | 'right-center') => {
   illustrationMode.value = mode
   illustrationOffset.value = { x: 0, y: 0 }
+  saveCurrentIllustrationLayoutToStorage()
 }
 
 // 立绘拖动：在 600px 容器上按下并移动时叠加偏移
@@ -869,6 +953,7 @@ function onIllustrationDragStart(e: MouseEvent) {
     illustrationDragging.value = false
     window.removeEventListener('mousemove', onMove)
     window.removeEventListener('mouseup', onUp)
+    saveCurrentIllustrationLayoutToStorage()
   }
   window.addEventListener('mousemove', onMove)
   window.addEventListener('mouseup', onUp)
@@ -881,19 +966,28 @@ watch(currentIllustrationUrl, (url) => {
     illustrationPendingUrl.value = ''
     illustrationContentBounds.value = null
     illustrationReady.value = false
+    pendingIllustrationLayout.value = null
+    pendingIllustrationLayoutForUrl.value = ''
     return
   }
+
+  const savedLayout = resolveSavedIllustrationLayout()
   const cached = illustrationBoundsCache.get(url)
   if (cached) {
     illustrationContentBounds.value = cached
     illustrationDisplayUrl.value = url
     illustrationPendingUrl.value = ''
     illustrationReady.value = true
+    pendingIllustrationLayout.value = null
+    pendingIllustrationLayoutForUrl.value = ''
+    applyIllustrationLayout(savedLayout)
     return
   }
   if (illustrationDisplayUrl.value) {
     // 已有立绘：切表情时用 pending 预加载，就绪后再替换，不先隐藏
     illustrationPendingUrl.value = url
+    pendingIllustrationLayout.value = savedLayout
+    pendingIllustrationLayoutForUrl.value = url
     return
   }
   // 无缓存且当前无显示（如刷新后首帧）：立即显示，用默认边界；可见 img load 后再算边界，避免依赖隐藏图 load 偶发不触发
@@ -901,6 +995,9 @@ watch(currentIllustrationUrl, (url) => {
   illustrationPendingUrl.value = ''
   illustrationContentBounds.value = null
   illustrationReady.value = true
+  pendingIllustrationLayout.value = null
+  pendingIllustrationLayoutForUrl.value = ''
+  applyIllustrationLayout(savedLayout)
 })
 
 // 立绘容器出现时更新宽度并挂载 ResizeObserver；消失时断开
