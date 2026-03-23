@@ -94,8 +94,8 @@
           <!-- NPC 立绘：在聊天下方 z-0，遮罩用于凸显对话、不遮挡聊天 -->
           <div
             v-if="currentIllustrationUrl && !illustrationError"
-            class="absolute inset-0 pointer-events-none z-0 overflow-hidden transition-opacity duration-200"
-            :class="illustrationReady ? 'opacity-100' : 'opacity-0'"
+            class="absolute inset-0 pointer-events-none z-0 overflow-hidden"
+            :class="illustrationReady ? 'opacity-100 transition-opacity duration-200' : 'opacity-0'"
           >
             <!-- 后台预加载新表情，不参与布局 -->
             <img
@@ -113,6 +113,7 @@
             >
               <img
                 ref="illustrationImgRef"
+                :key="illustrationDisplayUrl"
                 :src="illustrationDisplayUrl"
                 :alt="currentSessionNpc"
                 class="absolute top-0 opacity-90"
@@ -591,6 +592,8 @@ const illustrationImgRenderedWidth = ref(0)
 const illustrationReady = ref(false)
 // 当前真正显示出来的立绘 URL（仅在新图就绪后替换，避免先隐藏再显示导致闪烁）
 const illustrationDisplayUrl = ref('')
+// 当前真正显示出来的立绘所属 NPC（用于判断是否是跨 NPC 切换）
+const illustrationDisplayNpc = ref('')
 // 正在后台加载的新表情 URL，加载并算完边界后再赋给 illustrationDisplayUrl
 const illustrationPendingUrl = ref('')
 // 立绘手动偏移（拖动后叠加在三种模式的位置上）；点三个模式按钮时重置为 0
@@ -598,15 +601,19 @@ const illustrationOffset = ref({ x: 0, y: 0 })
 const illustrationDragging = ref(false)
 
 // --- 立绘位置持久化（localStorage）---
-// 以「会话 + NPC + 情绪」为粒度保存（下次打开同一页面语境时恢复到上次位置）
-const ILLUSTRATION_LAYOUT_STORAGE_PREFIX = 'illustration-layout-v1'
-const ILLUSTRATION_DEFAULT_MODE: 'global-center' | 'right-docked' | 'right-center' = 'right-center'
-const ILLUSTRATION_DEFAULT_LAYOUT = {
+// 以 NPC 名为单位保存：该 NPC 在所有会话、所有情绪下共用同一套档位与偏移
+const ILLUSTRATION_LAYOUT_STORAGE_PREFIX = 'npc-illustration-layout'
+type IllustrationPersistedLayout = {
+  mode: 'global-center' | 'right-docked' | 'right-center'
+  offset: { x: number; y: number }
+}
+const ILLUSTRATION_DEFAULT_MODE: IllustrationPersistedLayout['mode'] = 'right-center'
+const ILLUSTRATION_DEFAULT_LAYOUT: IllustrationPersistedLayout = {
   mode: ILLUSTRATION_DEFAULT_MODE,
   offset: { x: 0, y: 0 }
 }
 const isRestoringIllustrationLayout = ref(false)
-const pendingIllustrationLayout = ref<typeof ILLUSTRATION_DEFAULT_LAYOUT | null>(null)
+const pendingIllustrationLayout = ref<IllustrationPersistedLayout | null>(null)
 const pendingIllustrationLayoutForUrl = ref('')
 
 function isValidIllustrationMode(v: unknown): v is 'global-center' | 'right-docked' | 'right-center' {
@@ -614,14 +621,12 @@ function isValidIllustrationMode(v: unknown): v is 'global-center' | 'right-dock
 }
 
 function getIllustrationLayoutStorageKey() {
-  const sessionId = currentSessionId.value
   const npc = currentSessionNpc.value
-  const emotion = currentEmotion.value
-  if (!sessionId || !npc || !emotion) return null
-  return `${ILLUSTRATION_LAYOUT_STORAGE_PREFIX}:${sessionId}:${npc}:${emotion}`
+  if (!npc) return null
+  return `${ILLUSTRATION_LAYOUT_STORAGE_PREFIX}:${encodeURIComponent(npc)}`
 }
 
-function applyIllustrationLayout(layout: typeof ILLUSTRATION_DEFAULT_LAYOUT) {
+function applyIllustrationLayout(layout: IllustrationPersistedLayout) {
   isRestoringIllustrationLayout.value = true
   illustrationMode.value = layout.mode
   illustrationOffset.value = { x: layout.offset.x, y: layout.offset.y }
@@ -629,28 +634,34 @@ function applyIllustrationLayout(layout: typeof ILLUSTRATION_DEFAULT_LAYOUT) {
   isRestoringIllustrationLayout.value = false
 }
 
-function resolveSavedIllustrationLayout(): typeof ILLUSTRATION_DEFAULT_LAYOUT {
-  const key = getIllustrationLayoutStorageKey()
-  if (!key) return ILLUSTRATION_DEFAULT_LAYOUT
+function parseIllustrationLayoutFromStorageRaw(raw: string): IllustrationPersistedLayout | null {
   try {
-    const raw = localStorage.getItem(key)
-    if (!raw) return ILLUSTRATION_DEFAULT_LAYOUT
     const data = JSON.parse(raw) as unknown
     if (
       typeof data === 'object' &&
       data !== null &&
       'mode' in data &&
       'offset' in data &&
-      isValidIllustrationMode((data as any).mode) &&
-      typeof (data as any).offset?.x === 'number' &&
-      typeof (data as any).offset?.y === 'number'
+      isValidIllustrationMode((data as { mode: unknown }).mode) &&
+      typeof (data as { offset: { x?: unknown; y?: unknown } }).offset?.x === 'number' &&
+      typeof (data as { offset: { x?: unknown; y?: unknown } }).offset?.y === 'number'
     ) {
-      return {
-        mode: (data as any).mode,
-        offset: { x: (data as any).offset.x, y: (data as any).offset.y }
-      }
+      const d = data as IllustrationPersistedLayout
+      return { mode: d.mode, offset: { x: d.offset.x, y: d.offset.y } }
     }
-    return ILLUSTRATION_DEFAULT_LAYOUT
+  } catch {
+    /* ignore */
+  }
+  return null
+}
+
+function resolveSavedIllustrationLayout(): IllustrationPersistedLayout {
+  const key = getIllustrationLayoutStorageKey()
+  if (!key) return ILLUSTRATION_DEFAULT_LAYOUT
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return ILLUSTRATION_DEFAULT_LAYOUT
+    return parseIllustrationLayoutFromStorageRaw(raw) ?? ILLUSTRATION_DEFAULT_LAYOUT
   } catch {
     return ILLUSTRATION_DEFAULT_LAYOUT
   }
@@ -883,17 +894,40 @@ function updateIllustrationImgRenderedSize() {
   illustrationImgRenderedWidth.value = el ? Math.round(el.getBoundingClientRect().width) : 0
 }
 
-// 可见立绘 img load：更新渲染尺寸；若尚无边界（如刷新后首帧直接显示）则用本图算边界
+// 是否需要在切换时短暂隐藏立绘：
+// 1) 不同 NPC：总是隐藏，避免旧图按新边界短暂错位
+// 2) 同 NPC：仅当有效范围宽度变化超过阈值时隐藏，避免小幅表情变化也出现黑一下
+function shouldHideDuringIllustrationSwitch(
+  nextNpc: string,
+  nextBounds: { left: number; right: number; centerX: number } | null
+) {
+  if (!illustrationDisplayUrl.value) return false
+  const prevNpc = illustrationDisplayNpc.value
+  if (!prevNpc || prevNpc !== nextNpc) return true
+  const prevBounds = illustrationContentBounds.value
+  if (!prevBounds || !nextBounds) return false
+  const prevW = Math.max(1, prevBounds.right - prevBounds.left)
+  const nextW = Math.max(1, nextBounds.right - nextBounds.left)
+  const widthChangeRatio = Math.abs(nextW - prevW) / prevW
+  return widthChangeRatio > 0.1
+}
+
+// 可见立绘 img load：新图解码完成后再显示（illustrationReady）并更新尺寸，避免仍显示上一张图时先套用新 NPC 的 contentBounds 造成瞬移
 async function onDisplayIllustrationLoad(event: Event) {
   const img = event.target as HTMLImageElement
   const url = illustrationDisplayUrl.value
-  if (img && url && !illustrationContentBounds.value) {
+  if (!img || !url) return
+  if (!illustrationContentBounds.value) {
     const bounds = await getIllustrationContentBounds(img, url)
-    if (bounds && illustrationDisplayUrl.value === url) {
+    if (illustrationDisplayUrl.value !== url) return
+    if (bounds) {
       illustrationContentBounds.value = bounds
     }
   }
-  nextTick(() => updateIllustrationImgRenderedSize())
+  await nextTick()
+  if (illustrationDisplayUrl.value !== url) return
+  updateIllustrationImgRenderedSize()
+  illustrationReady.value = true
 }
 
 // 后台预加载的新表情 load：算边界后赋给 displayUrl，再替换显示，避免先隐再显
@@ -903,18 +937,25 @@ async function onPendingIllustrationLoad() {
   if (!img || !url || currentIllustrationUrl.value !== url) return
   const bounds = await getIllustrationContentBounds(img, url)
   if (currentIllustrationUrl.value !== url) return
+  const nextNpc = currentSessionNpc.value
+  const shouldHide = shouldHideDuringIllustrationSwitch(nextNpc, bounds)
+  if (shouldHide) {
+    illustrationReady.value = false
+  }
   if (bounds) {
     illustrationContentBounds.value = bounds
   }
-  // 表情切换过程中使用 pending 预加载时，这里再恢复到对应立绘的上次位置
+  // 必须先切换 displayUrl，再应用该 NPC 已保存的布局；否则仍显示上一张立绘时就会先套上错误位置，造成「闪回」
+  illustrationDisplayUrl.value = url
+  illustrationDisplayNpc.value = nextNpc
+  illustrationPendingUrl.value = ''
   if (pendingIllustrationLayoutForUrl.value === url && pendingIllustrationLayout.value) {
     applyIllustrationLayout(pendingIllustrationLayout.value)
   } else {
     applyIllustrationLayout(ILLUSTRATION_DEFAULT_LAYOUT)
   }
-  illustrationDisplayUrl.value = url
-  illustrationPendingUrl.value = ''
-  illustrationReady.value = true
+  pendingIllustrationLayout.value = null
+  pendingIllustrationLayoutForUrl.value = ''
   nextTick(() => updateIllustrationImgRenderedSize())
 }
 
@@ -963,6 +1004,7 @@ function onIllustrationDragStart(e: MouseEvent) {
 watch(currentIllustrationUrl, (url) => {
   if (!url) {
     illustrationDisplayUrl.value = ''
+    illustrationDisplayNpc.value = ''
     illustrationPendingUrl.value = ''
     illustrationContentBounds.value = null
     illustrationReady.value = false
@@ -974,10 +1016,15 @@ watch(currentIllustrationUrl, (url) => {
   const savedLayout = resolveSavedIllustrationLayout()
   const cached = illustrationBoundsCache.get(url)
   if (cached) {
+    const nextNpc = currentSessionNpc.value
+    const shouldHide = shouldHideDuringIllustrationSwitch(nextNpc, cached)
+    if (shouldHide) {
+      illustrationReady.value = false
+    }
     illustrationContentBounds.value = cached
     illustrationDisplayUrl.value = url
+    illustrationDisplayNpc.value = nextNpc
     illustrationPendingUrl.value = ''
-    illustrationReady.value = true
     pendingIllustrationLayout.value = null
     pendingIllustrationLayoutForUrl.value = ''
     applyIllustrationLayout(savedLayout)
@@ -990,11 +1037,11 @@ watch(currentIllustrationUrl, (url) => {
     pendingIllustrationLayoutForUrl.value = url
     return
   }
-  // 无缓存且当前无显示（如刷新后首帧）：立即显示，用默认边界；可见 img load 后再算边界，避免依赖隐藏图 load 偶发不触发
+  // 无缓存且当前无显示（如刷新后首帧）：用默认边界占位；等可见图 load 后再算真实边界并显示
   illustrationDisplayUrl.value = url
+  illustrationDisplayNpc.value = currentSessionNpc.value
   illustrationPendingUrl.value = ''
   illustrationContentBounds.value = null
-  illustrationReady.value = true
   pendingIllustrationLayout.value = null
   pendingIllustrationLayoutForUrl.value = ''
   applyIllustrationLayout(savedLayout)
