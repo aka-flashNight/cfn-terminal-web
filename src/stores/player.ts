@@ -13,7 +13,8 @@ export const Progress = {
   WARLORD: '军阀' as const,
   BLACK_IRON_HQ: '黑铁会总堂' as const,
   NOAH: '诺亚' as const,
-  SNOW_MOUNTAIN: '雪山' as const
+  SNOW_MOUNTAIN: '雪山' as const,
+  CLEARED: '已通关' as const
 }
 
 type GenderType = typeof Gender[keyof typeof Gender]
@@ -25,17 +26,19 @@ export const PROGRESS_TO_IDENTITY: Record<ProgressType, string> = {
   [Progress.WARLORD]: '精锐',
   [Progress.BLACK_IRON_HQ]: '高手',
   [Progress.NOAH]: '顶级',
-  [Progress.SNOW_MOUNTAIN]: '元老级'
+  [Progress.SNOW_MOUNTAIN]: '元老级',
+  [Progress.CLEARED]: '最强'
 }
 
-// 从废城到雪山对应 1–6 阶段，用于向后端传递数值型进度
+// 从废城到雪山对应 1–6 阶段，已通关为第 7 阶段
 export const PROGRESS_TO_STAGE_INDEX: Record<ProgressType, number> = {
   [Progress.WASTED_CITY]: 1,
   [Progress.FALLEN_CITY]: 2,
   [Progress.WARLORD]: 3,
   [Progress.BLACK_IRON_HQ]: 4,
   [Progress.NOAH]: 5,
-  [Progress.SNOW_MOUNTAIN]: 6
+  [Progress.SNOW_MOUNTAIN]: 6,
+  [Progress.CLEARED]: 7
 }
 
 // 常见平台 API Base 配置映射（包含中转站、云平台、官方等）
@@ -225,10 +228,18 @@ export const usePlayerStore = defineStore('player', () => {
     const genderText = gender.value === Gender.UNKNOWN ? '' : gender.value
     const bioText = bio.value ? `，${bio.value}` : ''
 
-    return `一名 A 兵团${identity}${genderText}佣兵${bioText}。`
+    // 只对指定阶段强化“佣兵”后的称号
+    const powerDescriptorByProgress: Partial<Record<ProgressType, string>> = {
+      [Progress.NOAH]: '，知名强者',
+      [Progress.SNOW_MOUNTAIN]: '，顶级强者',
+      [Progress.CLEARED]: '，绝世高手'
+    }
+    const powerText = powerDescriptorByProgress[progress.value] ?? ''
+
+    return `一名 A 兵团${identity}${genderText}佣兵${powerText}${bioText}。`
   })
 
-  // 数值型剧情进度阶段：废城→雪山 对应 1→6
+  // 数值型剧情进度阶段：废城→雪山 对应 1→6，已通关为 7
   const storyProgressStage = computed(() => PROGRESS_TO_STAGE_INDEX[progress.value] ?? 1)
 
   // Actions

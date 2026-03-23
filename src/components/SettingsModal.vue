@@ -95,6 +95,7 @@
                 <option :value="Progress.BLACK_IRON_HQ">黑铁会总堂</option>
                 <option :value="Progress.NOAH">诺亚</option>
                 <option :value="Progress.SNOW_MOUNTAIN">雪山</option>
+                <option :value="Progress.CLEARED">已通关</option>
               </select>
             </div>
 
@@ -548,7 +549,15 @@ const previewIdentity = computed(() => {
   const genderText = formData.value.gender === Gender.UNKNOWN ? '' : formData.value.gender
   const bioText = formData.value.bio ? `，${formData.value.bio}` : ''
 
-  return `一名 A 兵团${identity}${genderText}佣兵${bioText}。`
+  // 只对指定阶段强化“佣兵”后的称号
+  const powerDescriptorByProgress: Partial<Record<ProgressType, string>> = {
+    [Progress.SNOW_MOUNTAIN]: '，顶级强者',
+    [Progress.NOAH]: '，知名强者',
+    [Progress.CLEARED]: '，绝世高手'
+  }
+  const powerText = powerDescriptorByProgress[formData.value.progress as ProgressType] ?? ''
+
+  return `一名 A 兵团${identity}${genderText}佣兵${powerText}${bioText}。`
 })
 
 const handleModelNameBlur = () => {
