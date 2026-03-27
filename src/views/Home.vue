@@ -419,7 +419,7 @@
             <button
               type="button"
               @click="isLoading ? cancelChatMessage() : sendChatMessage()"
-              :disabled="!isLoading && !inputMessage.trim()"
+              :disabled="!isLoading && !inputMessage.trim() && !actionInput.trim()"
               class="px-6 py-3 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed font-mono"
               :class="
                 isLoading
