@@ -206,6 +206,35 @@ export function inferPlatformFromApiBase(apiBase: string): CommonPlatformValue |
   return undefined;
 }
 
+/**
+ * 规整用户自填/恢复出的 API Base（09 §5.3 前端修复项）：
+ * 恢复 localStorage 配置时可能出现「自动推导 base + 用户自填 base」被字符串拼接的畸形值
+ * （如 https://api.deepseek.com/v1https://api.deepseek.com/chat/completions），
+ * 这里统一做防御性规整：仅保留一个 scheme、去掉误拼的完整端点路径、去重结尾的 /v1、修剪空白与尾部斜杠。
+ */
+export function normalizeApiBase(raw: string): string {
+  const trimmed = (raw ?? '').trim();
+  if (!trimmed) return '';
+
+  // 畸形拼接会含第二个 scheme（如 /v1https://...），只保留第一段
+  const schemeMatches = [...trimmed.matchAll(/[a-z][a-z0-9+.-]*:\/\//gi)];
+  let singleScheme = trimmed;
+  if (schemeMatches.length > 1 && schemeMatches[1]?.index) {
+    singleScheme = trimmed.slice(0, schemeMatches[1].index);
+  }
+
+  let result = singleScheme
+    // 误把完整对话端点填进来时剥掉端点路径
+    .replace(/\/chat\/completions\/?$/i, '')
+    // 去重结尾的 /v1（如 .../v1/v1 → .../v1）
+    .replace(/(?:\/v1)+\/?$/i, '/v1');
+
+  if (result.length > 'x://'.length && result.endsWith('/')) {
+    result = result.replace(/\/+$/, '');
+  }
+  return result;
+}
+
 export const usePlayerStore = defineStore('player', () => {
   // State
   const gender = ref<GenderType>(Gender.UNKNOWN)
@@ -215,12 +244,13 @@ export const usePlayerStore = defineStore('player', () => {
   const api_base = ref<string>('')
   const model_name = ref<string>('')
   const proxy_url = ref<string>('') // 代理服务器地址
-  /** 是否启用 Agent（工具调用、任务发布等），默认开启；关闭可降低 API 频率与 token */
-  const agent_enabled = ref<boolean>(true)
-  /** 历史记录长度档位：10=短 30=中 100=长 500=几乎无限，对应 ask 的 summarize_interval，history 的 limit = 此值 * 5 */
-  const summarize_interval = ref<number>(30)
   const hasConfigured = ref<boolean>(false) // 标记用户是否已保存过配置
   const remember_api_key = ref<boolean>(true) // 默认记住 API Key
+  /**
+   * 最近一次 done 事件上报的本会话累计 token 用量（仅内存，不持久化）；
+   * 无统计的极端路径下可能为空
+   */
+  const lastTurnUsage = ref<{ prompt_tokens?: number; completion_tokens?: number; cached_tokens?: number; total_tokens?: number } | null>(null)
 
   // Getters
   const playerIdentity = computed(() => {
@@ -258,6 +288,7 @@ export const usePlayerStore = defineStore('player', () => {
   // 持久化到 localStorage 或 sessionStorage
   const saveToLocalStorage = () => {
     hasConfigured.value = true
+    api_base.value = normalizeApiBase(api_base.value)
 
     // 基础配置（总是保存到 localStorage）
     const persistentData = {
@@ -267,8 +298,6 @@ export const usePlayerStore = defineStore('player', () => {
       api_base: api_base.value,
       model_name: model_name.value,
       proxy_url: proxy_url.value,
-      agent_enabled: agent_enabled.value,
-      summarize_interval: summarize_interval.value,
       hasConfigured: true,
       remember_api_key: remember_api_key.value
     }
@@ -294,13 +323,10 @@ export const usePlayerStore = defineStore('player', () => {
         gender.value = data.gender || Gender.UNKNOWN
         progress.value = data.progress || Progress.WASTED_CITY
         bio.value = data.bio || ''
-        api_base.value = data.api_base || ''
+        // 恢复时规整 api_base，防止历史脏数据拼出畸形 URL（09 §5.3）
+        api_base.value = normalizeApiBase(typeof data.api_base === 'string' ? data.api_base : '')
         model_name.value = data.model_name || ''
         proxy_url.value = data.proxy_url || ''
-        agent_enabled.value = data.agent_enabled !== false
-        summarize_interval.value = [10, 30, 100, 500].includes(Number(data.summarize_interval))
-          ? Number(data.summarize_interval)
-          : 30
         hasConfigured.value = data.hasConfigured || false
         remember_api_key.value = data.remember_api_key !== false // 默认为 true
       } catch (error) {
@@ -341,10 +367,9 @@ export const usePlayerStore = defineStore('player', () => {
     api_base,
     model_name,
     proxy_url,
-    agent_enabled,
-    summarize_interval,
     hasConfigured,
     remember_api_key,
+    lastTurnUsage,
 
     // Getters
     playerIdentity,

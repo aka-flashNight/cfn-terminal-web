@@ -135,7 +135,7 @@
                 <input
                   v-model="formData.model_name"
                   type="text"
-                  placeholder="例如：gemini-3.1-flash-lite-preview, kimi-k2.5"
+                  placeholder="例如：deepseek-v4-flash-vision-exp, kimi-k2.5"
                   @blur="handleModelNameBlur"
                   class="w-full bg-[#111111] text-[#00ff41] border border-[#333333] rounded px-3 py-2 pr-10 focus:outline-none focus:border-[#00ff41] focus:shadow-[0_0_10px_rgba(0,255,65,0.2)] transition-all placeholder-[#444444]"
                 />
@@ -148,6 +148,9 @@
                   ×
                 </button>
               </div>
+              <p class="text-[#555555] text-xs font-mono mt-2">
+                [建议] 推荐使用 deepseek-v4-flash-vision-exp（支持图像识别，NPC 立绘可参与对话）。
+              </p>
             </div>
 
             <!-- API Base -->
@@ -269,68 +272,18 @@
               </p>
             </div>
 
-            <!-- Agent 能力（布局与「记住 API Key」一致：标题 + 下一行勾选+说明文字） -->
-            <div>
-              <div class="block text-sm font-medium mb-2 text-[#00ff41] font-mono">
-                &gt; Agent 能力
-              </div>
-              <div class="space-y-2">
-                <label class="flex items-center cursor-pointer group">
-                  <input
-                    id="settings-agent-enabled"
-                    v-model="formData.agent_enabled"
-                    type="checkbox"
-                    class="mr-2 accent-[#00ff41] w-4 h-4"
-                  />
-                  <span class="text-gray-400 group-hover:text-[#00ff41] transition-colors text-sm">
-                    启用 Agent 功能（可发布任务）
-                  </span>
-                </label>
-                <p class="text-[#555555] text-xs font-mono leading-relaxed">
-                  [提示] 启用后，NPC 可使用 Agent 功能；实行 Agent 功能时，<span class="text-[#ffaa00]">API 调用频率会明显上升，token 消耗也会增加。</span>建议配合具备<span class="text-[#00ffff]">缓存命中</span>能力的 AI 服务使用。
-                </p>
-              </div>
-            </div>
-
-            <!-- 历史记录长度 -->
-            <div>
+            <!-- Token 用量（v3 done 事件上报的本会话累计值，可选展示） -->
+            <div v-if="lastTurnUsageText">
               <label class="block text-sm font-medium mb-2 text-[#00ff41] font-mono">
-                > 精确短期记忆长度
+                > Token 用量（本会话累计）
               </label>
-              <div class="relative">
-                <input
-                  :value="summarizeIntervalIndex"
-                  type="range"
-                  min="0"
-                  max="3"
-                  step="1"
-                  class="w-full h-2 bg-[#222222] rounded-lg appearance-none cursor-pointer accent-[#00ff41]"
-                  @input="onSummarizeIntervalInput"
-                />
-                <!-- 当前档位文字严格跟随滑条圆点：轨道两端比容器略窄，用内缩比例对齐 -->
-                <div class="relative h-5 mt-1">
-                  <span
-                    class="absolute text-xs font-mono text-[#00ff41] whitespace-nowrap -translate-x-1/2"
-                    :style="{ left:  0.5 * trackInsetPercent + (summarizeIntervalIndex / 3) * (100 - 1 * trackInsetPercent) + '%' }"
-                  >
-                    {{ ['短', '中', '长', '几乎无限'][summarizeIntervalIndex] }}
-                  </span>
-                </div>
-              </div>
-              <div class="mt-2 p-2 rounded bg-[#555555]/10 border border-[#555555]/30">
-                <p class="text-[#888888] text-xs font-mono leading-relaxed">
-                  [提示] 角色已具有单个会话内容的永久模糊记忆功能，此处调整的仅为精确的短期记忆长度。
-                </p>
-                <p class="text-[#888888] text-xs font-mono leading-relaxed mt-1">
-                  [注意] 更长的精确记忆长度更加考验模型自身上下文能力，并要求模型具有对应的上下文窗口。
-                </p>
-                <p class="text-[#888888] text-xs font-mono leading-relaxed mt-1">
-                  [注意] 更长的精确记忆长度将导致 token 消耗上升。请根据实际情况选择。
-                </p>
-              </div>
+              <p class="text-[#888888] text-sm font-mono">{{ lastTurnUsageText }}</p>
+              <p class="text-[#555555] text-xs font-mono mt-2">
+                [提示] 来自最近一次对话回合结束时后端上报的累计值；切换会话或刷新页面后重新累计。
+              </p>
             </div>
 
-            <!-- 立绘管理 -->
+            <!-- 资源管理 -->
             <div class="pt-4 border-t border-[#333333]">
               <h3 class="text-xs font-medium text-[#888888] mb-2 font-mono uppercase tracking-wider flex items-center gap-2">
                 <span class="w-4 h-[1px] bg-[#555555]"></span>
@@ -338,31 +291,9 @@
                 <span class="w-4 h-[1px] bg-[#555555]"></span>
               </h3>
               <p class="text-[#555555] text-xs font-mono mb-3">
-                立绘来源：① 将 illustration.zip 与 exe 放在同一目录，程序会自动解压（速度较快）；② 无 zip 且有 Java 时，可从 SWF 导成立绘（需数分钟，对硬件有一定要求）。
-              </p>
-              <p class="text-[#555555] text-xs font-mono mb-3">
-                [提示] 请确保系统使用utf-8编码，否则解压的立绘名称可能乱码。生成完毕后请刷新页面。
-              </p>
-              <p class="text-[#555555] text-xs font-mono mb-3">
-                [提示] 重置知识库需消耗数分钟，且对设备硬件占用率较高，非特殊情况下无需重置。
+                [提示] NPC 立绘已由游戏对话立绘资源体系提供，无需手动生成；重置知识库需消耗数分钟，且对设备硬件占用率较高，非特殊情况下无需重置。
               </p>
               <div class="flex flex-wrap gap-2 items-center">
-                <button
-                  type="button"
-                  :disabled="exportIllustrationsLoading"
-                  @click="runExportIllustrations(false)"
-                  class="px-4 py-2 bg-[#1a1a1a] hover:bg-[#252525] border border-[#444444] hover:border-[#00ff41] text-gray-400 hover:text-[#00ff41] text-sm font-medium rounded transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  补充缺失立绘
-                </button>
-                <button
-                  type="button"
-                  :disabled="exportIllustrationsLoading"
-                  @click="runExportIllustrations(true)"
-                  class="px-4 py-2 bg-[#1a1a1a] hover:bg-[#252525] border border-[#444444] hover:border-[#00ff41] text-gray-400 hover:text-[#00ff41] text-sm font-medium rounded transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  重新生成全部立绘
-                </button>
                 <button
                   type="button"
                   :disabled="resetKnowledgeBaseLoading"
@@ -371,22 +302,6 @@
                 >
                   重置知识库
                 </button>
-              </div>
-              <p v-if="exportIllustrationsLoading" class="text-[#00ff41] text-xs font-mono mt-2">
-                正在准备立绘，请稍候（从 SWF 导出时约需十数分钟）。
-              </p>
-              <div
-                v-else-if="exportIllustrationsMessage"
-                class="mt-2 p-2 rounded text-xs font-mono"
-                :class="exportIllustrationsSuccess ? 'bg-[#00ff41]/10 border border-[#00ff41]/50 text-[#00ff41]' : 'bg-[#ff0040]/10 border border-[#ff0040]/50 text-[#ff0040]'"
-              >
-                {{ exportIllustrationsMessage }}
-              </div>
-              <div
-                v-else-if="exportIllustrationsError"
-                class="mt-2 p-2 rounded text-xs font-mono bg-[#ff0040]/10 border border-[#ff0040]/50 text-[#ff0040]"
-              >
-                {{ exportIllustrationsError }}
               </div>
               <p v-if="resetKnowledgeBaseLoading" class="text-[#00ff41] text-xs font-mono mt-2">
                 正在重置知识库，请稍候…
@@ -457,7 +372,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { usePlayerStore, Gender, Progress, inferApiBase, PROGRESS_TO_IDENTITY, COMMON_PLATFORMS, getPlatformByValue, inferPlatformFromApiBase } from '../stores/player'
-import { exportIllustrations } from '../api/assets'
 import { resetKnowledgeBase } from '../api/game'
 import type { AxiosError } from 'axios'
 
@@ -474,11 +388,6 @@ const emit = defineEmits<{
 
 const playerStore = usePlayerStore()
 
-/** 历史记录长度档位：短/中/长/几乎无限 → 10/30/100/500 */
-const SUMMARY_INTERVAL_OPTIONS = [10, 30, 100, 500] as const
-/** 滑条轨道相对容器左右内缩比例（约 3% 时文字与圆点对齐更好） */
-const trackInsetPercent = 3
-
 const formData = ref({
   gender: playerStore.gender as GenderType,
   progress: playerStore.progress as ProgressType,
@@ -487,29 +396,22 @@ const formData = ref({
   api_base: playerStore.api_base,
   model_name: playerStore.model_name,
   proxy_url: playerStore.proxy_url,
-  remember_api_key: playerStore.remember_api_key,
-  agent_enabled: playerStore.agent_enabled,
-  summarize_interval: playerStore.summarize_interval
+  remember_api_key: playerStore.remember_api_key
 })
 
-const summarizeIntervalIndex = computed(() => {
-  const idx = SUMMARY_INTERVAL_OPTIONS.indexOf(formData.value.summarize_interval as 10 | 30 | 100 | 500)
-  return idx >= 0 ? idx : 1
+/** 最近一次 done 事件上报的本会话累计 token 用量（无统计时不显示） */
+const lastTurnUsageText = computed(() => {
+  const usage = playerStore.lastTurnUsage
+  if (!usage) return ''
+  const parts: string[] = []
+  if (typeof usage.prompt_tokens === 'number') parts.push(`输入 ${usage.prompt_tokens}`)
+  if (typeof usage.completion_tokens === 'number') parts.push(`输出 ${usage.completion_tokens}`)
+  if (typeof usage.cached_tokens === 'number' && usage.cached_tokens > 0) parts.push(`缓存命中 ${usage.cached_tokens}`)
+  if (typeof usage.total_tokens === 'number') parts.push(`合计 ${usage.total_tokens}`)
+  return parts.join(' / ')
 })
-
-const onSummarizeIntervalInput = (e: Event) => {
-  const target = e.target as HTMLInputElement
-  const idx = Math.max(0, Math.min(3, parseInt(target.value, 10) || 0))
-  formData.value.summarize_interval = SUMMARY_INTERVAL_OPTIONS[idx] ?? 30
-}
 
 const isFirstLoad = ref(false)
-
-// 立绘导出状态
-const exportIllustrationsLoading = ref(false)
-const exportIllustrationsMessage = ref('')
-const exportIllustrationsSuccess = ref(false)
-const exportIllustrationsError = ref('')
 
 // 重置知识库状态（success === false 且 message 含「数据文档不全」时视为文档不全类错误，单独样式）
 const resetKnowledgeBaseLoading = ref(false)
@@ -585,43 +487,13 @@ const handleSave = () => {
   playerStore.model_name = formData.value.model_name
   playerStore.proxy_url = formData.value.proxy_url
   playerStore.remember_api_key = formData.value.remember_api_key
-  playerStore.agent_enabled = formData.value.agent_enabled
-  playerStore.summarize_interval = formData.value.summarize_interval
 
-  // 保存到 localStorage
+  // 保存到 localStorage（内部会再规整一次 api_base）
   playerStore.saveToLocalStorage()
 
   // 关闭弹窗
   emit('update:modelValue', false)
   isFirstLoad.value = false
-}
-
-const runExportIllustrations = async (overwrite: boolean) => {
-  exportIllustrationsError.value = ''
-  exportIllustrationsMessage.value = ''
-  resetKnowledgeBaseMessage.value = ''
-  resetKnowledgeBaseError.value = ''
-  exportIllustrationsLoading.value = true
-  try {
-    const data = await exportIllustrations(overwrite)
-    exportIllustrationsSuccess.value = !!data.success
-    const parts: string[] = []
-    if (data.message) parts.push(data.message)
-    if (data.source === 'zip') parts.push('（本次来自 illustration.zip 解压）')
-    if (data.source === 'swf') parts.push('（本次来自 SWF 导出）')
-    exportIllustrationsMessage.value = parts.join(' ')
-  } catch (err: unknown) {
-    const axiosErr = err as AxiosError<{ detail?: string }>
-    if (axiosErr.response?.status === 503 && axiosErr.response?.data?.detail) {
-      exportIllustrationsError.value = axiosErr.response.data.detail
-    } else if (axiosErr.code === 'ECONNABORTED' || axiosErr.message?.includes('timeout')) {
-      exportIllustrationsError.value = '请求超时（15 分钟）。从 SWF 导成立绘可能耗时较长，请确认后端仍在处理或稍后重试。'
-    } else {
-      exportIllustrationsError.value = axiosErr.response?.data?.detail ?? axiosErr.message ?? '立绘导出失败，请稍后重试。'
-    }
-  } finally {
-    exportIllustrationsLoading.value = false
-  }
 }
 
 const DOCS_INCOMPLETE_MARKER = '数据文档不全'
@@ -630,8 +502,6 @@ const runResetKnowledgeBase = async () => {
   resetKnowledgeBaseError.value = ''
   resetKnowledgeBaseMessage.value = ''
   resetKnowledgeBaseDocsIncomplete.value = false
-  exportIllustrationsMessage.value = ''
-  exportIllustrationsError.value = ''
   resetKnowledgeBaseLoading.value = true
   try {
     const data = await resetKnowledgeBase()

@@ -157,11 +157,19 @@
               :key="msg.id"
               class="flex flex-col gap-0.5"
             >
-              <!-- 系统消息：只渲染字符串里的 [...]，单独居中一行 -->
+              <!-- 系统消息：单独居中一行（v3 system_notice / 错误提示） -->
               <template v-if="msg.role === 'system'">
                 <div class="flex justify-center">
                   <div class="text-xs text-[#555555] bg-[#111111] border border-[#333333] rounded-lg px-3 py-1.5 text-center">
-                    {{ extractSystemBracketText(msg.content) }}
+                    {{ msg.content }}
+                    <button
+                      v-if="retryQueryByAssistantMsgId[msg.id]"
+                      type="button"
+                      class="ml-2 text-[#00ffff]/90 hover:text-[#00ffff] transition-colors"
+                      @click="retryCancelledMessage(msg.id)"
+                    >
+                      重试
+                    </button>
                   </div>
                 </div>
               </template>
@@ -207,20 +215,9 @@
               <!-- 正常消息：按块渲染 -->
               <template v-else>
                 <template v-for="(block, blockIdx) in messageToBlocks(msg.content)" :key="blockIdx">
-                  <div
-                    v-if="block.type === 'system'"
-                    class="flex mt-3 mb-5 relative z-10 justify-center w-full"
-                  >
-                    <div
-                      class="text-xs text-[#888888] bg-[#141414] border border-[#3a3a3a] rounded-lg px-4 py-2 text-center shadow-[0_0_0_1px_rgba(0,255,65,0.06)] max-w-[min(92%,28rem)]"
-                    >
-                      {{ extractSystemBracesText(block.content) }}
-                    </div>
-                  </div>
-
                   <!-- 单独成段的动作：与气泡左右对齐，上下居中留白，层级高于气泡光晕 -->
                   <div
-                    v-else-if="block.type === 'standalone'"
+                    v-if="block.type === 'standalone'"
                     class="flex mt-5 mb-1 relative z-10"
                     :class="msg.role === 'user' ? 'justify-start' : 'justify-end'"
                   >
@@ -256,7 +253,7 @@
 
                   <!-- 气泡段落 -->
                   <div
-                    v-else-if="block.type === 'bubble' && (block.content.trim() || shouldRenderEmptyAssistantBubble(msg))"
+                    v-else-if="block.type === 'bubble' && block.content.trim()"
                     class="flex"
                     :class="msg.role === 'user' ? 'justify-start' : 'justify-end'"
                   >
@@ -268,11 +265,6 @@
                       <div class="bg-[#1a1a1a] border border-[#333333] rounded-lg p-3">
                         <p class="text-sm whitespace-pre-wrap">
                           <span
-                            v-if="!block.content.trim()"
-                            class="text-[#555555] animate-pulse"
-                          >{{ getEmptyAssistantBubbleText(msg) }}</span>
-                          <span
-                            v-else
                             v-for="(node, idx) in parseActionNodes(block.content)"
                             :key="idx"
                             :class="node.type === 'action' ? 'message-action-text message-action-inline' : 'text-gray-300'"
@@ -292,11 +284,6 @@
                         <div class="relative bg-[#0b0b0b] border border-[#00ffff]/40 rounded-lg p-3">
                         <p class="text-sm whitespace-pre-wrap">
                           <span
-                            v-if="!block.content.trim()"
-                            class="text-[#555555] animate-pulse"
-                          >{{ getEmptyAssistantBubbleText(msg) }}</span>
-                          <span
-                            v-else
                             v-for="(node, idx) in parseActionNodes(block.content)"
                             :key="idx"
                             :class="node.type === 'action' ? 'message-action-text message-action-text-npc message-action-inline' : 'text-[#00ffff]'"
@@ -339,11 +326,62 @@
                   </div>
                 </template>
               </template>
+
+            <!-- 流式状态行：后台任务/检索进行中（agent_status，task=琥珀色/search=蓝色）优先，
+                 否则显示首段 content 之后的 tool_status 提示；done/failed 后消失。与 NPC 主气泡同规格（光晕+头像列） -->
+              <div
+                v-if="msg.role === 'assistant' && msg.id === streamingAssistantMsgId && (activeAgentStatus || msg.postContentToolStatus)"
+                class="flex justify-end mt-1"
+              >
+                <div class="flex items-start gap-4" :class="chatBubbleMaxWidthClass">
+                  <div class="relative">
+                    <div
+                      class="pointer-events-none absolute inset-0 -m-6 rounded-2xl opacity-80 blur-[14px]"
+                      style="background: radial-gradient(circle at 100% 50%, rgba(0,0,0,0.7) 0%, rgba(5,5,5,0.58) 34%, rgba(5,5,5,0.3) 70%, transparent 100%);"
+                    ></div>
+                    <div
+                      class="relative bg-[#0b0b0b] rounded-lg p-3"
+                      :class="activeAgentStatus
+                        ? (activeAgentStatus.agent === 'task' ? 'border border-[#ffb454]/40' : 'border border-[#4da3ff]/40')
+                        : 'border border-[#00ffff]/40'"
+                    >
+                      <p class="text-sm whitespace-pre-wrap">
+                        <span
+                          v-if="activeAgentStatus"
+                          class="agent-status-text"
+                          :class="activeAgentStatus.agent === 'task' ? 'agent-status-task' : 'agent-status-search'"
+                        >{{ agentStatusText }}</span>
+                        <span v-else class="message-stream-tool-status">{{ msg.postContentToolStatus }}</span>
+                      </p>
+                    </div>
+                  </div>
+                  <div class="relative flex-shrink-0">
+                    <div
+                      class="absolute inset-0 -m-8 rounded-full opacity-90 blur-[14px] pointer-events-none"
+                      style="background: radial-gradient(circle, rgba(0,0,0,0.82) 0%, rgba(5,5,5,0.72) 35%, rgba(5,5,5,0.36) 70%, transparent 100%);"
+                    ></div>
+                    <div
+                      class="absolute inset-0 -m-1 rounded-full opacity-70 blur-[3px] pointer-events-none"
+                      style="background: radial-gradient(circle, rgba(0,255,255,0.9) 0%, rgba(0,255,255,0.35) 35%, transparent 70%);"
+                    ></div>
+                    <div
+                      class="relative w-14 h-14 rounded-full border-2 border-[#00ffff]/60 overflow-hidden bg-[#020202]/95 shadow-[0_0_12px_rgba(0,255,255,0.45)]"
+                    >
+                      <img
+                        :src="getAvatarUrl(currentSessionNpc)"
+                        :alt="currentSessionNpc"
+                        class="w-full h-full object-cover"
+                        @error="handleAvatarError"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <!-- Loading 状态：仅当「最后一条不是助手消息」时显示，避免与占位 NPC 消息重复成两条 -->
+            <!-- Loading 状态：仅当「最后一条是用户消息」（占位 NPC 消息尚未建立）时显示，避免与占位/系统行重复成两条 -->
             <div
-              v-if="isLoading && (chatMessages.length === 0 || (chatMessages[chatMessages.length - 1]?.role !== 'assistant' && chatMessages[chatMessages.length - 1]?.role !== 'system'))"
+              v-if="isLoading && (chatMessages.length === 0 || chatMessages[chatMessages.length - 1]?.role === 'user')"
               class="flex justify-end items-center gap-3"
             >
               <div class="bg-[#111111] border border-[#00ffff]/30 rounded-lg p-3">
@@ -515,7 +553,8 @@ import {
   deleteSession,
   type Session,
   type ChatMessage,
-  type NpcCandidateItem
+  type NpcCandidateItem,
+  type AgentStatusEventData
 } from '../api/game'
 
 const playerStore = usePlayerStore()
@@ -558,30 +597,78 @@ const chatContainer = ref<HTMLDivElement>()
 const loadingPlaceholderActive = ref(false)
 const loadingPlaceholderMsgId = ref<number | null>(null)
 const loadingPlaceholderDefaultText = ref<string>('')
-const loadingPlaceholderLastToolText = ref<string>('')
-// 与 loadingPlaceholder 不同：从首段 content 到 onDone 之间仍为 true，用于「仅系统行」时继续显示等待气泡
+// 从首段 content 到 done 之间仍为 true，用于状态行/重试按钮的归属判断
 const streamingAssistantMsgId = ref<number | null>(null)
 // 系统提示与正式对话之间的占位措辞（流式未结束、尚无正文时）
 const WAITING_FOR_TERMINAL_RESPONSE = '等待终端响应……'
+// 本地临时消息（系统行/错误行）的 id 计数器：走负数区，避免与时间戳 id 冲突
+let ephemeralMsgIdSeq = 0
+const nextEphemeralMsgId = () => --ephemeralMsgIdSeq
+// 本轮流式进行中的 agent_status（task 拟定 / search 检索），done/failed 后清空
+const activeAgentStatus = ref<AgentStatusEventData | null>(null)
+/** agent_status 各 phase 的兜底文案（后端未给 ui_hint 时使用） */
+const AGENT_PHASE_FALLBACK_TEXT: Record<AgentStatusEventData['phase'], string> = {
+  drafting: '拟定委托中',
+  repairing: '校验修正中',
+  searching: '查资料中',
+  done: '',
+  failed: '处理失败'
+}
+const agentStatusText = computed(() => {
+  const s = activeAgentStatus.value
+  if (!s) return ''
+  return s.ui_hint?.trim() || AGENT_PHASE_FALLBACK_TEXT[s.phase] || '后台处理中'
+})
+
+// 流式 tool_status 展示文案（与占位阶段规则一致）
+function formatStreamToolStatusDisplayText(text: string): string {
+  const safeTextRaw = typeof text === 'string' ? text : ''
+  const safeTextTrimmed = safeTextRaw.trimEnd()
+  const hasEllipsis = safeTextTrimmed.endsWith('…') || safeTextTrimmed.endsWith('...')
+  if (!safeTextTrimmed || safeTextTrimmed.length > 12) {
+    return WAITING_FOR_TERMINAL_RESPONSE
+  }
+  if (hasEllipsis) {
+    return safeTextTrimmed
+  }
+  const base = safeTextTrimmed.length >= 12 ? safeTextTrimmed.slice(0, 11) : safeTextTrimmed
+  return `${base}…`
+}
+
+/** 首段 content 之后：单独气泡用后端原文（仅过长时截断），避免 >12 字被置成「等待终端…」看不到真实状态 */
+function formatPostContentToolStatusBubbleText(text: string): string {
+  const t = (typeof text === 'string' ? text : '').trim()
+  if (!t) return WAITING_FOR_TERMINAL_RESPONSE
+  const max = 120
+  return t.length > max ? `${t.slice(0, max)}…` : t
+}
+
+// 一轮流式内：meta 只驱动一次立绘/好感/关系等级更新（v3 meta 必先于 content、每回合一次）
+const metaAppliedThisRound = ref(false)
+// 本轮是否已收到至少一段 content（用于区分「首段前的 tool_status」与「正文后的 tool_status」）
+const streamAssistantContentStarted = ref(false)
 
 // 立绘布局模式：'global-center' 全局居中；'right-docked' 右侧对齐展开；'right-center' 右侧 300px 区域内居中（默认）
 const illustrationMode = ref<'global-center' | 'right-docked' | 'right-center'>('right-center')
 
-// SWF 导出立绘的源图与有效区域（4096×2304，有效区域约 (200,1600)..(3500,100)，底边 y=1600 对齐）
-const ILLUST_SOURCE_WIDTH = 4096
-const ILLUST_SOURCE_HEIGHT = 2304
-const ILLUST_CONTENT_TOP_Y = 100
-const ILLUST_CONTENT_BOTTOM_Y = 1600
-// 未正确算到非透明边界时使用的默认有效 X 范围（大部分立绘在 200–2300）
-const ILLUST_DEFAULT_BOUNDS = { left: 200, right: 2300, centerX: 1250 }
+// v3 立绘来自游戏对话立绘 manifest 查表（external 1024×576 / internal 775×1000 原始 PNG 直出），
+// 不同角色/表情尺寸不同：统一按显示高度 600px 等比缩放，X 边界由非透明像素动态计算（居中/右对齐用）
 const ILLUST_DISPLAY_HEIGHT = 600
-const ILLUST_SCALE = ILLUST_DISPLAY_HEIGHT / ILLUST_CONTENT_BOTTOM_Y // 0.375
-const ILLUST_DISPLAY_WIDTH = Math.round(ILLUST_SOURCE_WIDTH * ILLUST_SCALE)
-const ILLUST_SCALED_HEIGHT = Math.round(ILLUST_SOURCE_HEIGHT * ILLUST_SCALE)
+// alpha 扫描的采样画布最大宽度（原图等比缩到该宽度内再扫描，控制开销）
+const ILLUST_SAMPLE_MAX_WIDTH = 1024
 
-// 立绘内容在 X 方向上的边界（由非透明像素计算，在 y∈[0,1600] 内），用于居中和右对齐
-const illustrationContentBounds = ref<{ left: number; right: number; centerX: number } | null>(null)
-const illustrationBoundsCache = new Map<string, { left: number; right: number; centerX: number }>()
+type IllustrationGeometry = {
+  naturalWidth: number
+  naturalHeight: number
+  /** 内容区 X 边界（源图坐标），用于居中/右对齐定位 */
+  left: number
+  right: number
+  centerX: number
+}
+
+// 当前显示立绘的几何信息（含源图尺寸），算完（或失败走默认值）后再显示立绘，避免错位闪现
+const illustrationGeometry = ref<IllustrationGeometry | null>(null)
+const illustrationBoundsCache = new Map<string, IllustrationGeometry>()
 const illustrationContainerRef = ref<HTMLDivElement | null>(null)
 const illustrationContainerWidth = ref(0)
 const illustrationImgRef = ref<HTMLImageElement | null>(null)
@@ -768,17 +855,16 @@ const illustrationOverlayStyle = computed(() => {
   }
 })
 
-// 立绘图片样式：y 方向按 1600→600 缩放，x 方向同比例；偏移按「实际渲染宽度/1536」再乘一遍，避免被容器二次缩放时错位
+// 立绘图片样式：按源图实际高度缩放到 600px 显示高，X 方向同比例；偏移按「实际渲染宽度/标称宽度」再乘一遍，避免被容器二次缩放时错位
 const illustrationImgStyle = computed(() => {
-  if (!currentIllustrationUrl.value || illustrationError.value) return {}
-  const b = illustrationContentBounds.value
-  const centerX = b ? b.centerX : ILLUST_DEFAULT_BOUNDS.centerX
-  const contentRight = b ? b.right : ILLUST_DEFAULT_BOUNDS.right
-  const scale = ILLUST_SCALE
-  const nominalCenterPx = centerX * scale
-  const nominalRightPx = contentRight * scale
+  const g = illustrationGeometry.value
+  if (!currentIllustrationUrl.value || illustrationError.value || !g) return {}
+  const scale = ILLUST_DISPLAY_HEIGHT / g.naturalHeight
+  const displayWidth = Math.round(g.naturalWidth * scale)
+  const nominalCenterPx = g.centerX * scale
+  const nominalRightPx = g.right * scale
   const renderedW = illustrationImgRenderedWidth.value
-  const ratio = renderedW > 0 ? renderedW / ILLUST_DISPLAY_WIDTH : 1
+  const ratio = renderedW > 0 ? renderedW / displayWidth : 1
   const centerPx = Math.round(nominalCenterPx * ratio)
   const rightPx = Math.round(nominalRightPx * ratio)
   let left: string
@@ -792,9 +878,9 @@ const illustrationImgStyle = computed(() => {
   const ox = illustrationOffset.value.x
   const oy = illustrationOffset.value.y
   return {
-    width: `${ILLUST_DISPLAY_WIDTH}px`,
-    height: `${ILLUST_SCALED_HEIGHT}px`,
-    minWidth: `${ILLUST_DISPLAY_WIDTH}px`,
+    width: `${displayWidth}px`,
+    height: `${ILLUST_DISPLAY_HEIGHT}px`,
+    minWidth: `${displayWidth}px`,
     maxWidth: 'none',
     top: '0',
     left,
@@ -830,62 +916,66 @@ const handleAvatarError = (event: Event, npcName?: string) => {
 // 立绘加载失败处理
 const handleIllustrationError = () => {
   illustrationError.value = true
-  illustrationContentBounds.value = null
+  illustrationGeometry.value = null
   // 标记当前 NPC+情绪 的立绘无效，避免本次页面生命周期内重复请求
   if (currentSessionNpc.value && currentEmotion.value) {
     markIllustrationInvalid(currentSessionNpc.value, currentEmotion.value)
   }
 }
 
-// 用已加载的立绘 img（不新建请求，避免 CORS）在 y∈[100,1600] 对应区域算 X 左右边界与中点，返回 4096 源图坐标
-function getIllustrationContentBounds(img: HTMLImageElement, imgSrc: string): Promise<{ left: number; right: number; centerX: number } | null> {
+// 用已加载的立绘 img（不新建请求，避免 CORS）做 alpha 扫描算 X 左右边界与中点，返回源图坐标几何信息
+function computeIllustrationGeometry(img: HTMLImageElement, imgSrc: string): IllustrationGeometry {
   const cached = illustrationBoundsCache.get(imgSrc)
-  if (cached) return Promise.resolve(cached)
+  if (cached) return cached
 
-  return new Promise((resolve) => {
-    try {
-      const sampleW = 2048
-      const sampleH = 1152
-      const canvas = document.createElement('canvas')
-      canvas.width = sampleW
-      canvas.height = sampleH
-      const ctx = canvas.getContext('2d')
-      if (!ctx) {
-        resolve(null)
-        return
-      }
-      ctx.drawImage(img, 0, 0, sampleW, sampleH)
-      const data = ctx.getImageData(0, 0, sampleW, sampleH).data
-      const alphaThreshold = 20
-      const contentTopSampleY = Math.floor((ILLUST_CONTENT_TOP_Y / ILLUST_SOURCE_HEIGHT) * sampleH)
-      const contentBottomSampleY = Math.floor((ILLUST_CONTENT_BOTTOM_Y / ILLUST_SOURCE_HEIGHT) * sampleH)
-      let left = sampleW
-      let right = 0
-      for (let y = contentTopSampleY; y <= contentBottomSampleY; y++) {
-        for (let x = 0; x < sampleW; x++) {
-          const a = data[(y * sampleW + x) * 4 + 3]
-          if (a && a > alphaThreshold) {
-            if (x < left) left = x
-            if (x > right) right = x
-          }
+  const naturalWidth = img.naturalWidth || 0
+  const naturalHeight = img.naturalHeight || 0
+  // 采样失败时的兜底：整幅图视为内容区（居中/右对齐退化为按整图定位）
+  const fallback: IllustrationGeometry = {
+    naturalWidth: naturalWidth || ILLUST_DISPLAY_HEIGHT,
+    naturalHeight: naturalHeight || ILLUST_DISPLAY_HEIGHT,
+    left: 0,
+    right: naturalWidth || ILLUST_DISPLAY_HEIGHT,
+    centerX: Math.round((naturalWidth || ILLUST_DISPLAY_HEIGHT) / 2)
+  }
+  if (!naturalWidth || !naturalHeight) return fallback
+
+  try {
+    const sampleW = Math.min(ILLUST_SAMPLE_MAX_WIDTH, naturalWidth)
+    const sampleH = Math.max(1, Math.round((naturalHeight / naturalWidth) * sampleW))
+    const canvas = document.createElement('canvas')
+    canvas.width = sampleW
+    canvas.height = sampleH
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })
+    if (!ctx) return fallback
+    ctx.drawImage(img, 0, 0, sampleW, sampleH)
+    const data = ctx.getImageData(0, 0, sampleW, sampleH).data
+    const alphaThreshold = 20
+    let left = sampleW
+    let right = 0
+    for (let y = 0; y < sampleH; y++) {
+      for (let x = 0; x < sampleW; x++) {
+        const a = data[(y * sampleW + x) * 4 + 3]
+        if (a && a > alphaThreshold) {
+          if (x < left) left = x
+          if (x > right) right = x
         }
       }
-      if (left > right) {
-        resolve(null)
-        return
-      }
-      const scaleToSource = ILLUST_SOURCE_WIDTH / sampleW
-      const result = {
-        left: Math.round(left * scaleToSource),
-        right: Math.round(right * scaleToSource),
-        centerX: Math.round((left + right) * 0.5 * scaleToSource)
-      }
-      illustrationBoundsCache.set(imgSrc, result)
-      resolve(result)
-    } catch {
-      resolve(null)
     }
-  })
+    if (left > right) return fallback
+    const scaleToSource = naturalWidth / sampleW
+    const geometry: IllustrationGeometry = {
+      naturalWidth,
+      naturalHeight,
+      left: Math.round(left * scaleToSource),
+      right: Math.round(right * scaleToSource),
+      centerX: Math.round((left + right) * 0.5 * scaleToSource)
+    }
+    illustrationBoundsCache.set(imgSrc, geometry)
+    return geometry
+  } catch {
+    return fallback
+  }
 }
 
 // 根据立绘 img 实际渲染宽度更新（y 缩到 600 后若再被容器缩放，需按此比例修正 centerPx/rightPx）
@@ -899,30 +989,26 @@ function updateIllustrationImgRenderedSize() {
 // 2) 同 NPC：仅当有效范围宽度变化超过阈值时隐藏，避免小幅表情变化也出现黑一下
 function shouldHideDuringIllustrationSwitch(
   nextNpc: string,
-  nextBounds: { left: number; right: number; centerX: number } | null
+  nextGeometry: IllustrationGeometry | null
 ) {
   if (!illustrationDisplayUrl.value) return false
   const prevNpc = illustrationDisplayNpc.value
   if (!prevNpc || prevNpc !== nextNpc) return true
-  const prevBounds = illustrationContentBounds.value
-  if (!prevBounds || !nextBounds) return false
-  const prevW = Math.max(1, prevBounds.right - prevBounds.left)
-  const nextW = Math.max(1, nextBounds.right - nextBounds.left)
+  const prevGeometry = illustrationGeometry.value
+  if (!prevGeometry || !nextGeometry) return false
+  const prevW = Math.max(1, prevGeometry.right - prevGeometry.left)
+  const nextW = Math.max(1, nextGeometry.right - nextGeometry.left)
   const widthChangeRatio = Math.abs(nextW - prevW) / prevW
   return widthChangeRatio > 0.1
 }
 
-// 可见立绘 img load：新图解码完成后再显示（illustrationReady）并更新尺寸，避免仍显示上一张图时先套用新 NPC 的 contentBounds 造成瞬移
+// 可见立绘 img load：新图解码完成后再显示（illustrationReady）并更新尺寸，避免仍显示上一张图时先套用新 NPC 的几何信息造成瞬移
 async function onDisplayIllustrationLoad(event: Event) {
   const img = event.target as HTMLImageElement
   const url = illustrationDisplayUrl.value
   if (!img || !url) return
-  if (!illustrationContentBounds.value) {
-    const bounds = await getIllustrationContentBounds(img, url)
-    if (illustrationDisplayUrl.value !== url) return
-    if (bounds) {
-      illustrationContentBounds.value = bounds
-    }
+  if (!illustrationGeometry.value) {
+    illustrationGeometry.value = computeIllustrationGeometry(img, url)
   }
   await nextTick()
   if (illustrationDisplayUrl.value !== url) return
@@ -930,21 +1016,19 @@ async function onDisplayIllustrationLoad(event: Event) {
   illustrationReady.value = true
 }
 
-// 后台预加载的新表情 load：算边界后赋给 displayUrl，再替换显示，避免先隐再显
+// 后台预加载的新表情 load：算几何信息后赋给 displayUrl，再替换显示，避免先隐再显
 async function onPendingIllustrationLoad() {
   const img = illustrationPendingImgRef.value
   const url = illustrationPendingUrl.value
   if (!img || !url || currentIllustrationUrl.value !== url) return
-  const bounds = await getIllustrationContentBounds(img, url)
+  const geometry = computeIllustrationGeometry(img, url)
   if (currentIllustrationUrl.value !== url) return
   const nextNpc = currentSessionNpc.value
-  const shouldHide = shouldHideDuringIllustrationSwitch(nextNpc, bounds)
+  const shouldHide = shouldHideDuringIllustrationSwitch(nextNpc, geometry)
   if (shouldHide) {
     illustrationReady.value = false
   }
-  if (bounds) {
-    illustrationContentBounds.value = bounds
-  }
+  illustrationGeometry.value = geometry
   // 必须先切换 displayUrl，再应用该 NPC 已保存的布局；否则仍显示上一张立绘时就会先套上错误位置，造成「闪回」
   illustrationDisplayUrl.value = url
   illustrationDisplayNpc.value = nextNpc
@@ -1006,7 +1090,7 @@ watch(currentIllustrationUrl, (url) => {
     illustrationDisplayUrl.value = ''
     illustrationDisplayNpc.value = ''
     illustrationPendingUrl.value = ''
-    illustrationContentBounds.value = null
+    illustrationGeometry.value = null
     illustrationReady.value = false
     pendingIllustrationLayout.value = null
     pendingIllustrationLayoutForUrl.value = ''
@@ -1021,7 +1105,7 @@ watch(currentIllustrationUrl, (url) => {
     if (shouldHide) {
       illustrationReady.value = false
     }
-    illustrationContentBounds.value = cached
+    illustrationGeometry.value = cached
     illustrationDisplayUrl.value = url
     illustrationDisplayNpc.value = nextNpc
     illustrationPendingUrl.value = ''
@@ -1037,11 +1121,11 @@ watch(currentIllustrationUrl, (url) => {
     pendingIllustrationLayoutForUrl.value = url
     return
   }
-  // 无缓存且当前无显示（如刷新后首帧）：用默认边界占位；等可见图 load 后再算真实边界并显示
+  // 无缓存且当前无显示（如刷新后首帧）：先用兜底几何占位；等可见图 load 后再算真实几何并显示
   illustrationDisplayUrl.value = url
   illustrationDisplayNpc.value = currentSessionNpc.value
   illustrationPendingUrl.value = ''
-  illustrationContentBounds.value = null
+  illustrationGeometry.value = null
   pendingIllustrationLayout.value = null
   pendingIllustrationLayoutForUrl.value = ''
   applyIllustrationLayout(savedLayout)
@@ -1079,10 +1163,7 @@ function updateIllustrationContainerWidth() {
 const loadSessions = async (isRetry: boolean = false) => {
   loadingSessions.value = true
   try {
-    // 传入代理配置，让后端可以初始化代理设置
-    const data = await getSessions({
-      proxy_url: playerStore.proxy_url || null
-    })
+    const data = await getSessions()
 
     // 检查返回数据是否为空（sessions 和 npc_candidates 都为空才认为是后端未就绪）
     const isSessionsEmpty = !data.sessions || data.sessions.length === 0
@@ -1138,6 +1219,7 @@ const selectSession = async (sessionId: string) => {
   loadingPlaceholderActive.value = false
   loadingPlaceholderMsgId.value = null
   streamingAssistantMsgId.value = null
+  activeAgentStatus.value = null
   favorability.value = null
   relationshipLevel.value = ''
   currentEmotion.value = '普通'
@@ -1252,6 +1334,7 @@ const exitSession = () => {
   loadingPlaceholderActive.value = false
   loadingPlaceholderMsgId.value = null
   streamingAssistantMsgId.value = null
+  activeAgentStatus.value = null
   favorability.value = null
   relationshipLevel.value = ''
   currentEmotion.value = '普通'
@@ -1358,14 +1441,16 @@ const sendChatMessage = async (options?: {
   if (options?.reuseAssistantMsgId) {
     const reuseIndex = chatMessages.value.findIndex(m => m.id === options.reuseAssistantMsgId)
     const reuseMsg = reuseIndex >= 0 ? chatMessages.value[reuseIndex] : null
-    if (!reuseMsg || reuseMsg.role !== 'assistant') {
+    // 重试可复用上一次失败的 assistant 气泡或 system 错误行
+    if (!reuseMsg || (reuseMsg.role !== 'assistant' && reuseMsg.role !== 'system')) {
       isLoading.value = false
       abortControllerRef.value = null
       return
     }
+    reuseMsg.role = 'assistant'
     reuseMsg.content = placeholderText
     reuseMsg.timestamp = Math.floor(Date.now() / 1000)
-    reuseMsg.bubblePlaceholder = placeholderText
+    reuseMsg.postContentToolStatus = undefined
     npcMsg = reuseMsg
     npcMsgIndex = reuseIndex
   } else {
@@ -1373,8 +1458,7 @@ const sendChatMessage = async (options?: {
       id: Date.now() + 1,
       role: 'assistant',
       content: placeholderText,
-      timestamp: Math.floor(Date.now() / 1000),
-      bubblePlaceholder: placeholderText
+      timestamp: Math.floor(Date.now() / 1000)
     }
     chatMessages.value.push(npcMsg)
     npcMsgIndex = chatMessages.value.length - 1
@@ -1383,11 +1467,9 @@ const sendChatMessage = async (options?: {
   loadingPlaceholderMsgId.value = npcMsg.id
   streamingAssistantMsgId.value = npcMsg.id
   loadingPlaceholderDefaultText.value = placeholderText
-  loadingPlaceholderLastToolText.value = ''
-  // 系统通知注入：以 {text} 独立单行写入 NPC 对话开头
-  let injectedSystemBlocks: string[] = []
-  const systemPrefix = () =>
-    injectedSystemBlocks.length ? `${injectedSystemBlocks.join('\n')}\n` : ''
+  metaAppliedThisRound.value = false
+  activeAgentStatus.value = null
+  streamAssistantContentStarted.value = false
 
   try {
     const payload: Parameters<typeof sendMessageStream>[0] = {
@@ -1399,8 +1481,6 @@ const sendChatMessage = async (options?: {
       api_base: playerStore.api_base || null,
       model_name: playerStore.model_name || null,
       proxy_url: playerStore.proxy_url || null,
-      agent_enabled: playerStore.agent_enabled,
-      summarize_interval: playerStore.summarize_interval ?? null,
       progress_stage: playerStore.storyProgressStage ?? null
     }
     if (currentEmotion.value?.trim()) {
@@ -1408,100 +1488,17 @@ const sendChatMessage = async (options?: {
     }
 
     await sendMessageStream(payload, {
-      onContent(delta) {
-        const msg = chatMessages.value[npcMsgIndex]
-        if (!msg) return
-        // 第一次收到 content 时退出占位，之后追加（打字机）
-        if (loadingPlaceholderActive.value && loadingPlaceholderMsgId.value === msg.id) {
-          msg.content = `${systemPrefix()}${delta}`
-          loadingPlaceholderActive.value = false
-          loadingPlaceholderMsgId.value = null
-        } else {
-          msg.content += delta
-        }
-        // 收到首段正文（任意非空 delta）后清除气泡占位，避免与真实对话混用
-        if (delta.length > 0) msg.bubblePlaceholder = undefined
-        nextTick().then(scrollToBottom)
-      },
-      onToolStatus(text, _tool_name) {
-        const msg = chatMessages.value[npcMsgIndex]
-        if (!msg) return
-        if (!loadingPlaceholderActive.value || loadingPlaceholderMsgId.value !== msg.id) return
-
-        const safeTextRaw = typeof text === 'string' ? text : ''
-        const safeTextTrimmed = safeTextRaw.trimEnd()
-        const hasEllipsis = safeTextTrimmed.endsWith('…') || safeTextTrimmed.endsWith('...')
-
-        // 后端已做 length 校验兜底，这里再做二次校验
-        let safeText: string
-        if (!safeTextTrimmed || safeTextTrimmed.length > 12) {
-          safeText = WAITING_FOR_TERMINAL_RESPONSE
-        } else if (hasEllipsis) {
-          safeText = safeTextTrimmed
-        } else {
-          // 为满足 UI 预期，补一个省略号后缀（保持总长度在 12 内）
-          const base = safeTextTrimmed.length >= 12 ? safeTextTrimmed.slice(0, 11) : safeTextTrimmed
-          safeText = `${base}…`
-        }
-
-        msg.content = `${systemPrefix()}${safeText}`
-        msg.bubblePlaceholder = safeText
-        loadingPlaceholderLastToolText.value = safeText
-        nextTick().then(scrollToBottom)
-      },
-      onSystem(text, _draft_id, _task_id) {
-        const msg = chatMessages.value[npcMsgIndex]
-        if (!msg) return
-        const sysText = typeof text === 'string' ? text : ''
-        if (!sysText) return
-
-        // { [任务草案已更新] } 这种形式入栈，渲染时只展示中间的 [... ]
-        const block = `{${sysText}}`
-        if (!injectedSystemBlocks.includes(block)) injectedSystemBlocks.push(block)
-
-        // 仅在占位阶段改写当前 assistant 消息开头
-        if (loadingPlaceholderActive.value && loadingPlaceholderMsgId.value === msg.id) {
-          // 保留当前占位内容（可能是 tool_status 的 text），只是在前面插入 system blocks
-          const lines = msg.content.split('\n')
-          let idx = 0
-          while (idx < lines.length) {
-            const l = (lines[idx] ?? '').trimStart()
-            if (l.startsWith('{') && l.includes('}')) idx++
-            else break
-          }
-          const tail = lines.slice(idx).join('\n').trim()
-          msg.content = `${injectedSystemBlocks.join('\n')}\n${tail || placeholderText}`
-        } else {
-          // 理论上 system 在 content 前到达；兜底：直接拼到当前开头
-          msg.content = `${systemPrefix()}${msg.content}`
-        }
-        nextTick().then(scrollToBottom)
-      },
-      onDone(data) {
-        streamingAssistantMsgId.value = null
-        const msg = chatMessages.value[npcMsgIndex]
-        const prefix = systemPrefix()
-        const replyStr = typeof data.reply === 'string' ? data.reply : ''
-
-        // 流结束：不持久化占位文案；仅系统块时只保留系统行，不补空气泡
-        if (msg) msg.bubblePlaceholder = undefined
-
-        loadingPlaceholderActive.value = false
-        loadingPlaceholderMsgId.value = null
-        loadingPlaceholderDefaultText.value = ''
-        loadingPlaceholderLastToolText.value = ''
-
-        // 仅当最终回复与当前内容不同时才更新，避免重复赋值导致闪烁
-        if (msg && msg.content !== `${prefix}${replyStr}`) {
-          msg.content = `${prefix}${replyStr}`
-        }
-        const nextMap = { ...retryQueryByAssistantMsgId.value }
-        delete nextMap[npcMsg.id]
-        retryQueryByAssistantMsgId.value = nextMap
-        injectedSystemBlocks = []
+      onMeta(data) {
+        if (metaAppliedThisRound.value) return
+        metaAppliedThisRound.value = true
         const prevFavor = favorability.value
+        // v3 meta 携带本回合全量终值：情绪（驱动立绘）、好感度、关系等级
+        currentEmotion.value = data.emotion?.trim() ? data.emotion.trim() : '普通'
         favorability.value = data.favorability
-        relationshipLevel.value = data.relationship_level
+        if (data.relationship_level?.trim()) {
+          relationshipLevel.value = data.relationship_level.trim()
+        }
+        illustrationError.value = false
         if (prevFavor !== null && data.favorability_change !== 0) {
           favorChangeValue.value = data.favorability_change
           showFavorChange.value = true
@@ -1509,44 +1506,139 @@ const sendChatMessage = async (options?: {
             showFavorChange.value = false
           }, 2000)
         }
-        currentEmotion.value = data.emotion
-        illustrationError.value = false
-        isFirstMessage.value = false
+      },
+      onContent(delta) {
+        const msg = chatMessages.value[npcMsgIndex]
+        if (!msg) return
+        streamAssistantContentStarted.value = true
+        // 正文继续输出时仅保留对话气泡，去掉 content 之后挂的 tool_status 条
+        msg.postContentToolStatus = undefined
+        // 第一次收到 content 时退出占位，之后追加（打字机）；v3 content 为纯台词
+        if (loadingPlaceholderActive.value && loadingPlaceholderMsgId.value === msg.id) {
+          msg.content = delta
+          loadingPlaceholderActive.value = false
+          loadingPlaceholderMsgId.value = null
+        } else {
+          msg.content += delta
+        }
         nextTick().then(scrollToBottom)
       },
-      onError(error) {
-        streamingAssistantMsgId.value = null
+      onToolStatus(data) {
         const msg = chatMessages.value[npcMsgIndex]
-        if (msg) {
-          msg.role = 'system'
-          msg.content = `[系统 ${error}]`
-        } else {
+        if (!msg) return
+        // v3 字段：{tool, status, ui_hint}；ui_hint ≤12 字，缺失时用工具名兜底
+        const text = data.ui_hint?.trim() || data.tool?.trim() || ''
+        if (!text) return
+
+        // 必须先判断：只要已有任意 content delta，后续 tool_status 一律进单独气泡（不覆盖主对话）
+        if (streamAssistantContentStarted.value) {
+          msg.postContentToolStatus = formatPostContentToolStatusBubbleText(text)
+          nextTick().then(scrollToBottom)
+          return
+        }
+
+        const safeText = formatStreamToolStatusDisplayText(text)
+        if (loadingPlaceholderActive.value && loadingPlaceholderMsgId.value === msg.id) {
+          msg.content = safeText
+          nextTick().then(scrollToBottom)
+        }
+      },
+      // 后台工作进度（task 拟定委托 / search 查资料）：状态条展示，done/failed 后消失
+      onAgentStatus(data) {
+        if (data.phase === 'done' || data.phase === 'failed') {
+          activeAgentStatus.value = null
+          return
+        }
+        activeAgentStatus.value = data
+        nextTick().then(scrollToBottom)
+      },
+      // 系统消息（草案已拟定/委托已发布/草案过期取消等）：独立系统行，替代旧 {花括号} 约定
+      onSystemNotice(text) {
+        const sysText = typeof text === 'string' ? text.trim() : ''
+        if (!sysText) return
+        const last = chatMessages.value[chatMessages.value.length - 1]
+        // 相邻重复的系统行去重
+        if (!(last && last.role === 'system' && last.content === sysText)) {
           chatMessages.value.push({
-            id: Date.now() + 2,
+            id: nextEphemeralMsgId(),
             role: 'system',
-            content: `[系统 ${error}]`,
+            content: sysText,
             timestamp: Math.floor(Date.now() / 1000)
           })
         }
+        nextTick().then(scrollToBottom)
+      },
+      onDone(data) {
+        streamingAssistantMsgId.value = null
+        activeAgentStatus.value = null
+        const msg = chatMessages.value[npcMsgIndex]
+
+        // v3 done 仅 {session_id, usage}：正文以 onContent 累积结果为准，绝不回写气泡（09 §5.1）
+        if (msg) {
+          msg.postContentToolStatus = undefined
+        }
+
         loadingPlaceholderActive.value = false
         loadingPlaceholderMsgId.value = null
         loadingPlaceholderDefaultText.value = ''
-        loadingPlaceholderLastToolText.value = ''
+
         const nextMap = { ...retryQueryByAssistantMsgId.value }
         delete nextMap[npcMsg.id]
+        retryQueryByAssistantMsgId.value = nextMap
+
+        // 本会话累计 token 用量（供设置页展示；无统计的极端路径下为空）
+        playerStore.lastTurnUsage = data.usage ?? null
+
+        // 情绪/好感/关系等级终态已由 meta 事件应用，done 不再重复处理
+        isFirstMessage.value = false
+        nextTick().then(scrollToBottom)
+      },
+      onError(err) {
+        streamingAssistantMsgId.value = null
+        activeAgentStatus.value = null
+        loadingPlaceholderActive.value = false
+        loadingPlaceholderMsgId.value = null
+        loadingPlaceholderDefaultText.value = ''
+
+        // v3 error 字段：{code, message, retryable}；retryable=false 时提示用户检查配置
+        const errorText = err.retryable ? err.message : `${err.message}（请检查 API 配置）`
+        const msg = chatMessages.value[npcMsgIndex]
+        let systemMsgId: number
+        if (msg) {
+          msg.postContentToolStatus = undefined
+          msg.role = 'system'
+          msg.content = errorText
+          systemMsgId = msg.id
+        } else {
+          systemMsgId = Date.now() + 2
+          chatMessages.value.push({
+            id: systemMsgId,
+            role: 'system',
+            content: errorText,
+            timestamp: Math.floor(Date.now() / 1000)
+          })
+        }
+
+        // 可重试错误保留原查询，系统行上提供「重试」入口；不可重试则清除
+        const nextMap = { ...retryQueryByAssistantMsgId.value }
+        if (err.retryable && message.trim()) {
+          nextMap[systemMsgId] = message
+        } else {
+          delete nextMap[systemMsgId]
+        }
         retryQueryByAssistantMsgId.value = nextMap
         nextTick().then(scrollToBottom)
       },
       onCancelled() {
         streamingAssistantMsgId.value = null
+        activeAgentStatus.value = null
         const msg = chatMessages.value[npcMsgIndex]
-        const prefix = systemPrefix()
+        if (msg) msg.postContentToolStatus = undefined
         const cancelledTag = '（已终止）'
 
         // 若取消发生在“占位阶段”（还没收到第一段 content），把占位文本改成明确的终止提示
         if (msg && loadingPlaceholderActive.value && loadingPlaceholderMsgId.value === msg.id) {
-          msg.content = `${prefix}${cancelledTag}`
-          msg.bubblePlaceholder = cancelledTag
+          msg.content = cancelledTag
         } else if (msg) {
           // 若已经开始输出部分正文，则不覆盖正文，只做“已终止”标记
           const raw = msg.content ?? ''
@@ -1563,32 +1655,40 @@ const sendChatMessage = async (options?: {
         loadingPlaceholderActive.value = false
         loadingPlaceholderMsgId.value = null
         loadingPlaceholderDefaultText.value = ''
-        loadingPlaceholderLastToolText.value = ''
-        injectedSystemBlocks = []
         nextTick().then(scrollToBottom)
       }
     }, { signal: abortControllerRef.value?.signal })
   } catch (error) {
     console.error('Failed to send message:', error)
     streamingAssistantMsgId.value = null
+    activeAgentStatus.value = null
     const msg = chatMessages.value[npcMsgIndex]
     loadingPlaceholderActive.value = false
     loadingPlaceholderMsgId.value = null
     loadingPlaceholderDefaultText.value = ''
-    loadingPlaceholderLastToolText.value = ''
+    // 前端侧异常（网络中断等）视为可重试，系统行上提供「重试」入口
+    const errorText = '连接终端失败，请检查网络或API配置'
+    let systemMsgId: number
     if (msg) {
+      msg.postContentToolStatus = undefined
       msg.role = 'system'
-      msg.content = '[系统 连接终端失败，请检查网络或API配置]'
+      msg.content = errorText
+      systemMsgId = msg.id
     } else {
+      systemMsgId = Date.now() + 2
       chatMessages.value.push({
-        id: Date.now() + 2,
+        id: systemMsgId,
         role: 'system',
-        content: '[系统 连接终端失败，请检查网络或API配置]',
+        content: errorText,
         timestamp: Math.floor(Date.now() / 1000)
       })
     }
     const nextMap = { ...retryQueryByAssistantMsgId.value }
-    delete nextMap[npcMsg.id]
+    if (message.trim()) {
+      nextMap[systemMsgId] = message
+    } else {
+      delete nextMap[systemMsgId]
+    }
     retryQueryByAssistantMsgId.value = nextMap
     nextTick().then(scrollToBottom)
   } finally {
@@ -1598,63 +1698,13 @@ const sendChatMessage = async (options?: {
   }
 }
 
-// 系统消息渲染：只取字符串里的 [...]（例如 [任务发布成功]）
-const extractSystemBracketText = (raw: string) => {
-  const matches = raw?.match(/\[[^\]]+\]/g)
-  return matches && matches.length ? matches.join(' ') : raw
-}
-
-// 从 { ... } 中提取内部文本（例如 `{[任务草案已更新]}` -> `[任务草案已更新]`）
-const extractSystemBracesText = (raw: string) => {
-  const start = raw.indexOf('{')
-  const end = raw.lastIndexOf('}')
-  if (start >= 0 && end > start) return raw.slice(start + 1, end)
-  return raw
-}
-
-// 当一条 assistant 消息只有系统块（{...}）没有对话文本时，仅在本次请求流式尚未结束时渲染占位 NPC 气泡（与首段 content 后 loadingPlaceholder 是否仍激活无关）
-const shouldRenderEmptyAssistantBubble = (msg: ChatMessage) => {
-  if (msg.role !== 'assistant') return false
-  if (streamingAssistantMsgId.value !== msg.id) return false
-  const raw = msg.content ?? ''
-  if (!raw.trim()) return false
-  const lines = raw.split('\n')
-  let hasSystem = false
-  for (const line of lines) {
-    const t = line.trim()
-    if (!t) continue
-    if (t.startsWith('{')) {
-      hasSystem = true
-      continue
-    }
-    // 除了 {..} 之外出现任何非空内容，就说明不是“只有系统块”
-    return false
-  }
-  return hasSystem
-}
-
-const getEmptyAssistantBubbleText = (msg: ChatMessage) => {
-  if (msg.role !== 'assistant') return ''
-  // 流式过程中：tool_status 等写在 bubblePlaceholder 上
-  if (msg.bubblePlaceholder?.trim()) return msg.bubblePlaceholder.trim()
-  // 仅系统块且无正文、且仍在本次流式请求中：与 shouldRenderEmptyAssistantBubble 一致
-  if (shouldRenderEmptyAssistantBubble(msg)) return WAITING_FOR_TERMINAL_RESPONSE
-  if (loadingPlaceholderMsgId.value === msg.id) {
-    if (loadingPlaceholderLastToolText.value) return loadingPlaceholderLastToolText.value
-    return (
-      loadingPlaceholderDefaultText.value ||
-      (isFirstMessage.value ? '[首次连接，等待终端加载...]' : '[正在链接终端...]')
-    )
-  }
-  return isFirstMessage.value ? '[首次连接，等待终端加载...]' : '[正在链接终端...]'
-}
-
 // 是否为流式占位 NPC（用于在气泡上显示加载动画）
+// 以「是否已收到首段 SSE content」为准
 const isLoadingPlaceholder = (msg: ChatMessage) =>
   loadingPlaceholderActive.value &&
   loadingPlaceholderMsgId.value === msg.id &&
   msg.role === 'assistant' &&
-  !msg.content.trimStart().startsWith('{')
+  !streamAssistantContentStarted.value
 
 // 流式/静态消息解析：【】内为动作描写，方括号不显示，仅内容用 action 样式
 type ContentNode = { type: 'action' | 'text'; content: string }
@@ -1692,19 +1742,15 @@ const focusMainInput = () => {
   mainInputRef.value?.focus()
 }
 
-// 将消息内容拆成「单独成段动作/系统通知」与「气泡内段落」
+// 将消息内容拆成「单独成段动作」与「气泡内段落」（v3 content 为纯台词，系统消息已由独立系统行承担）
 // - 行以「【」开头：动作 standalone
-// - 行以「{」开头：系统通知 system
 // - 其他内容：bubble
-type MessageBlock = { type: 'standalone' | 'system' | 'bubble'; content: string }
+type MessageBlock = { type: 'standalone' | 'bubble'; content: string }
 const messageToBlocks = (content: string): MessageBlock[] => {
   if (!content) return [{ type: 'bubble', content: '' }]
   const lines = content.split('\n')
   const blocks: MessageBlock[] = []
   let bubbleBuffer = ''
-  let hasBubbleBlock = false
-  let hasSystemBlock = false
-  let hasStandaloneBlock = false
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? ''
     const trimmedStart = line.trimStart()
@@ -1712,7 +1758,6 @@ const messageToBlocks = (content: string): MessageBlock[] => {
       if (bubbleBuffer) {
         blocks.push({ type: 'bubble', content: bubbleBuffer })
         bubbleBuffer = ''
-        hasBubbleBlock = true
       }
       const closeIdx = line.indexOf('】')
       if (closeIdx >= 0) {
@@ -1722,22 +1767,6 @@ const messageToBlocks = (content: string): MessageBlock[] => {
       } else {
         blocks.push({ type: 'standalone', content: line })
       }
-      hasStandaloneBlock = true
-    } else if (trimmedStart.startsWith('{')) {
-      if (bubbleBuffer) {
-        blocks.push({ type: 'bubble', content: bubbleBuffer })
-        bubbleBuffer = ''
-        hasBubbleBlock = true
-      }
-      const closeIdx = line.indexOf('}')
-      if (closeIdx >= 0) {
-        blocks.push({ type: 'system', content: line.slice(0, closeIdx + 1) })
-        const rest = line.slice(closeIdx + 1).trim()
-        if (rest) bubbleBuffer = rest
-      } else {
-        blocks.push({ type: 'system', content: line })
-      }
-      hasSystemBlock = true
     } else {
       if (bubbleBuffer) bubbleBuffer += '\n' + line
       else bubbleBuffer = line
@@ -1745,10 +1774,6 @@ const messageToBlocks = (content: string): MessageBlock[] => {
   }
   if (bubbleBuffer) {
     blocks.push({ type: 'bubble', content: bubbleBuffer })
-    hasBubbleBlock = true
-  } else if (!hasBubbleBlock && hasSystemBlock && !hasStandaloneBlock) {
-    // 只有 {} 系统通知（没有对话正文）时，补一个空 bubble 让 NPC 气泡仍然渲染
-    blocks.push({ type: 'bubble', content: '' })
   }
   return blocks.length ? blocks : [{ type: 'bubble', content: '' }]
 }
@@ -1922,6 +1947,40 @@ onUnmounted(() => {
 .action-input-leave-to {
   opacity: 0;
   transform: translateY(4px);
+}
+
+/* 流式 tool_status 单独气泡内：终端状态条专用字色与等宽字系，与对白青字区分 */
+.message-stream-tool-status {
+  color: #555555;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  letter-spacing: 0.04em;
+  animation: message-stream-tool-status-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+@keyframes message-stream-tool-status-pulse {
+  0%,
+  100% {
+    opacity: 0.72;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* agent_status 状态条：后台任务=琥珀色 / 检索=蓝色，等待期间脉冲呼吸 */
+.agent-status-text {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  letter-spacing: 0.04em;
+  animation: message-stream-tool-status-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+.agent-status-task {
+  color: #ffb454;
+}
+.agent-status-search {
+  color: #4da3ff;
 }
 
 /* 动作/心理/神态描写：灰色、斜体、略小，与对话区分；【】不显示，由 parseActionNodes 已剥离 */

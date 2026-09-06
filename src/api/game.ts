@@ -38,19 +38,18 @@ export interface ChatMessage {
   content: string
   timestamp: number
   /**
-   * 前端专用：当本条 assistant 仅有 `{...}` 系统块、气泡内无正文时，气泡里显示的占位文案
-   * （优先来自最后一次 tool_status，否则为默认「连接终端」类提示）
+   * 流式专用：已在首段 content 之后收到的 tool_status，单独显示在主对话气泡下方（done 时清除）
    */
-  bubblePlaceholder?: string
+  postContentToolStatus?: string
 }
 
-// 历史记录响应
+// 历史记录响应（后端按时间正序返回，messages[0] 为最早一条）
 export interface SessionHistoryResponse {
   session_id: string
   messages: ChatMessage[]
 }
 
-// 发送消息请求
+// 发送消息请求（v3：不再有 agent_enabled / summarize_interval）
 export interface NPCChatRequest {
   query: string
   npc_name: string
@@ -62,18 +61,11 @@ export interface NPCChatRequest {
   api_base?: string | null
   model_name?: string | null
   proxy_url?: string | null
-  /**
-   * 是否启用 Agent 能力（工具调用、任务发布等）。
-   * 关闭后 ask 走无 Agent 路径，调用与 token 通常更低。
-   */
-  agent_enabled?: boolean | null
-  /** 精确短期记忆长度档位：10/30/100/500，对应后端 SUMMARIZE_INTERVAL */
-  summarize_interval?: number | null
   /** 剧情进度阶段：废城→雪山 对应 1→6，已通关为第 7 阶段 */
   progress_stage?: number | null
 }
 
-// 发送消息响应
+// 发送消息响应（stream=false 时的非流式形态）
 export interface NPCChatResponse {
   reply: string
   npc_name: string
@@ -101,51 +93,77 @@ export interface UpdateSessionTitleResponse {
   title: string
 }
 
-// 初始化配置请求
-export interface InitConfigRequest {
-  proxy_url?: string | null
+// ---------------------------------------------------------------------------
+// SSE v3 事件契约（实现权威：后端 services/orchestrator/events.py）
+// ---------------------------------------------------------------------------
+
+/** meta：每回合有且仅有一次、必先于一切 content；情绪/好感终态以此为准 */
+export interface MetaEventData {
+  emotion: string
+  favorability_change: number
+  favorability: number
+  relationship_level: string
 }
 
-// 获取会话列表和 NPC 候选列表（可传入初始化配置）
-export function getSessions(config?: InitConfigRequest): Promise<SessionsResponse> {
-  return request.get('/api/game/sessions', { params: config }).then(res => res.data)
+/** tool_status：后端工具进度 */
+export interface ToolStatusEventData {
+  tool: string
+  status: 'running' | 'success' | 'failed'
+  /** ≤12 字的界面提示（如「发布委托」「取消委托」） */
+  ui_hint: string
 }
 
-// 创建新会话
-export function createSession(data: CreateSessionRequest): Promise<CreateSessionResponse> {
-  return request.post('/api/game/sessions', data).then(res => res.data)
+/** agent_status：后台工作进度（任务拟定 / 检索），等待体验的关键 */
+export interface AgentStatusEventData {
+  agent: 'task' | 'search'
+  phase: 'drafting' | 'repairing' | 'searching' | 'done' | 'failed'
+  ui_hint: string
 }
 
-// 获取会话历史记录（后端按时间倒序返回，即 messages[0] 为最新）
-// offset: 跳过条数，用于分页；0 表示从最新开始取 limit 条，50 表示跳过最新 50 条再取 limit 条（更早的消息）
-export function getSessionHistory(
-  sessionId: string,
-  limit: number = 50,
-  offset?: number
-): Promise<SessionHistoryResponse> {
-  const params: { limit: number; offset?: number } = { limit }
-  if (offset !== undefined && offset > 0) params.offset = offset
-  return request.get(`/api/game/history/${sessionId}`, { params }).then(res => res.data)
+/** done：回合结束。usage 为本会话累计 token 消耗，无统计的极端路径下可省略 */
+export interface UsageData {
+  prompt_tokens?: number
+  completion_tokens?: number
+  cached_tokens?: number
+  total_tokens?: number
 }
 
-// 发送消息（非流式）
-export function sendMessage(data: NPCChatRequest): Promise<NPCChatResponse> {
-  return request.post('/api/game/ask', data).then(res => res.data)
+export interface DoneEventData {
+  session_id: string
+  usage?: UsageData
 }
 
-/** 流式 ask 的回调：content 为打字机增量，done 为最终元数据，error 为错误或「回复未完成」 */
+/** error：不可恢复错误。retryable=false 时提示用户检查配置 */
+export interface ErrorEventData {
+  code: string
+  message: string
+  retryable: boolean
+}
+
+/** 流式 ask 的回调（v3 事件契约） */
 export interface SendMessageStreamCallbacks {
+  /** 情绪/好感/关系等级的回合终态：切立绘、更新好感条 */
+  onMeta(data: MetaEventData): void
+  /** NPC 台词增量（纯台词，无系统消息、无工具残渣） */
   onContent(delta: string): void
-  onDone(data: NPCChatResponse): void
-  onToolStatus(text: string, tool_name: string | null): void
-  onSystem(text: string, draft_id?: string | null, task_id?: string | null): void
-  onError(error: string): void
+  onToolStatus(data: ToolStatusEventData): void
+  /** 后台工作进度：done/failed 阶段后状态条应消失 */
+  onAgentStatus(data: AgentStatusEventData): void
+  /** 系统消息（草案已拟定/委托已发布/错误说明等），按系统样式渲染 */
+  onSystemNotice(text: string): void
+  /** 回合结束：只做收尾，正文以 onContent 累积结果为准，data 不再携带 reply */
+  onDone(data: DoneEventData): void
+  onError(data: ErrorEventData): void
   onCancelled?(): void
 }
 
+/** 后端在 SSE 响应头给出的契约版本（X-CFN-Version: 3.0.0） */
+const REQUIRED_SSE_MAJOR_VERSION = 3
+
 /**
- * 流式发送消息：POST /ask?stream=true，按 SSE 解析 content / done / error，
- * 通过回调推送 delta、最终 NPCChatResponse 或错误信息。
+ * 流式发送消息：POST /ask?stream=true，按 SSE v3 解析
+ * meta / content / tool_status / agent_status / system_notice / done / error 事件，
+ * 自动跳过 keep-alive 注释帧。
  */
 export async function sendMessageStream(
   data: NPCChatRequest,
@@ -165,13 +183,28 @@ export async function sendMessageStream(
 
     if (!response.ok) {
       const text = await response.text()
-      callbacks.onError(text || `请求失败 ${response.status}`)
+      callbacks.onError({
+        code: `http_${response.status}`,
+        message: text || `请求失败 ${response.status}`,
+        retryable: false
+      })
+      return
+    }
+
+    // 版本配套检查（09 §4）：响应头声明了旧版本时提示升级后端
+    const versionHeader = response.headers.get('X-CFN-Version')?.trim()
+    if (versionHeader && !versionHeader.startsWith(`${REQUIRED_SSE_MAJOR_VERSION}.`)) {
+      callbacks.onError({
+        code: 'version_mismatch',
+        message: `后端版本 ${versionHeader} 与本前端（v3 事件契约）不匹配，请升级后端`,
+        retryable: false
+      })
       return
     }
 
     reader = response.body?.getReader() ?? null
     if (!reader) {
-      callbacks.onError('无法读取响应流')
+      callbacks.onError({ code: 'no_stream', message: '无法读取响应流', retryable: false })
       return
     }
 
@@ -189,37 +222,83 @@ export async function sendMessageStream(
 
       for (const raw of parts) {
         let eventType = ''
-        let dataLine = ''
-        for (const line of raw.split('\n')) {
+        const dataLines: string[] = []
+        for (const rawLine of raw.split('\n')) {
+          const line = rawLine.replace(/\r$/, '')
+          // SSE 注释帧（: keep-alive 保活帧）按规范跳过
+          if (!line || line.startsWith(':')) continue
           if (line.startsWith('event:')) {
             eventType = line.slice(6).trim()
           } else if (line.startsWith('data:')) {
-            dataLine = line.slice(5).trim()
+            dataLines.push(line.slice(5).trimStart())
           }
         }
-        if (!dataLine) continue
+        if (!dataLines.length) continue
 
         try {
-          const data = JSON.parse(dataLine) as Record<string, unknown>
-          if (eventType === 'content') {
-            const delta = typeof data.delta === 'string' ? data.delta : ''
-            if (delta) callbacks.onContent(delta)
-          } else if (eventType === 'tool_status') {
-            const text = typeof data.text === 'string' ? data.text : ''
-            const tool_name = typeof data.tool_name === 'string' ? data.tool_name : null
-            callbacks.onToolStatus(text, tool_name)
-          } else if (eventType === 'system') {
-            const text = typeof data.text === 'string' ? data.text : ''
-            const draft_id = typeof data.draft_id === 'string' ? data.draft_id : null
-            const task_id = typeof data.task_id === 'string' ? data.task_id : null
-            callbacks.onSystem(text, draft_id, task_id)
-          } else if (eventType === 'done') {
-            doneReceived = true
-            callbacks.onDone(data as unknown as NPCChatResponse)
-          } else if (eventType === 'error') {
-            const err = typeof data.error === 'string' ? data.error : '未知错误'
-            callbacks.onError(err)
-            return
+          const payload = JSON.parse(dataLines.join('\n')) as Record<string, unknown>
+          switch (eventType) {
+            case 'meta':
+              callbacks.onMeta({
+                emotion: typeof payload.emotion === 'string' ? payload.emotion : '普通',
+                favorability_change:
+                  typeof payload.favorability_change === 'number' ? payload.favorability_change : 0,
+                favorability: typeof payload.favorability === 'number' ? payload.favorability : 0,
+                relationship_level:
+                  typeof payload.relationship_level === 'string' ? payload.relationship_level : ''
+              })
+              break
+            case 'content': {
+              const delta = typeof payload.delta === 'string' ? payload.delta : ''
+              if (delta) callbacks.onContent(delta)
+              break
+            }
+            case 'tool_status':
+              callbacks.onToolStatus({
+                tool: typeof payload.tool === 'string' ? payload.tool : '',
+                status:
+                  payload.status === 'success' || payload.status === 'failed'
+                    ? payload.status
+                    : 'running',
+                ui_hint: typeof payload.ui_hint === 'string' ? payload.ui_hint : ''
+              })
+              break
+            case 'agent_status':
+              callbacks.onAgentStatus({
+                agent: payload.agent === 'search' ? 'search' : 'task',
+                phase:
+                  payload.phase === 'repairing' ||
+                  payload.phase === 'searching' ||
+                  payload.phase === 'done' ||
+                  payload.phase === 'failed'
+                    ? payload.phase
+                    : 'drafting',
+                ui_hint: typeof payload.ui_hint === 'string' ? payload.ui_hint : ''
+              })
+              break
+            case 'system_notice': {
+              const text = typeof payload.text === 'string' ? payload.text : ''
+              if (text) callbacks.onSystemNotice(text)
+              break
+            }
+            case 'done': {
+              doneReceived = true
+              callbacks.onDone({
+                session_id: typeof payload.session_id === 'string' ? payload.session_id : '',
+                usage: isRecord(payload.usage) ? (payload.usage as UsageData) : undefined
+              })
+              break
+            }
+            case 'error':
+              callbacks.onError({
+                code: typeof payload.code === 'string' ? payload.code : 'unknown',
+                message: typeof payload.message === 'string' ? payload.message : '未知错误',
+                retryable: payload.retryable === true
+              })
+              return
+            default:
+              // keep_alive 等无 data 帧 / 未知事件：忽略
+              break
           }
         } catch (_) {
           // 忽略单条解析失败
@@ -227,7 +306,9 @@ export async function sendMessageStream(
       }
     }
 
-    if (!doneReceived) callbacks.onError('回复未完成')
+    if (!doneReceived) {
+      callbacks.onError({ code: 'stream_incomplete', message: '回复未完成', retryable: true })
+    }
   } catch (error: unknown) {
     // AbortController 取消：不当成系统错误展示给用户
     if ((error as any)?.name === 'AbortError') {
@@ -240,9 +321,39 @@ export async function sendMessageStream(
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+// 获取会话列表和 NPC 候选列表
+export function getSessions(): Promise<SessionsResponse> {
+  return request.get('/api/game/sessions').then(res => res.data)
+}
+
+// 创建新会话
+export function createSession(data: CreateSessionRequest): Promise<CreateSessionResponse> {
+  return request.post('/api/game/sessions', data).then(res => res.data)
+}
+
+// 获取会话历史记录（后端按时间正序返回，messages[0] 为最早）
+// offset: 跳过条数，用于分页；0 表示从最新开始取 limit 条，50 表示跳过最新 50 条再取 limit 条（更早的消息）
+export function getSessionHistory(
+  sessionId: string,
+  limit: number = 50,
+  offset?: number
+): Promise<SessionHistoryResponse> {
+  const params: { limit: number; offset?: number } = { limit }
+  if (offset !== undefined && offset > 0) params.offset = offset
+  return request.get(`/api/game/history/${sessionId}`, { params }).then(res => res.data)
+}
+
+// 发送消息（非流式）
+export function sendMessage(data: NPCChatRequest): Promise<NPCChatResponse> {
+  return request.post('/api/game/ask', data).then(res => res.data)
+}
+
 /**
  * 获取NPC好感度信息
- * 根据NPC名称获取当前好感度、关系等级和情绪状态
  *
  * 后端接口说明：
  * - 方法: GET
@@ -261,10 +372,6 @@ export function getNPCFavorability(npcName: string): Promise<NPCFavorabilityResp
  * 后端接口说明：
  * - 方法: PUT
  * - 路径: /api/game/sessions/:session_id/title
- * - 参数:
- *   - session_id (路径参数) - 会话ID
- *   - title (请求体) - 新的会话标题
- * - 返回: UpdateSessionTitleResponse
  * - 错误: 404 - 会话不存在, 400 - 标题为空或过长
  */
 export function updateSessionTitle(
@@ -280,7 +387,6 @@ export function updateSessionTitle(
  * 后端接口说明：
  * - 方法: DELETE
  * - 路径: /api/game/sessions/:session_id
- * - 参数: session_id (路径参数) - 会话ID
  * - 返回: 204 No Content (删除成功)
  * - 错误: 404 - 会话不存在
  */
