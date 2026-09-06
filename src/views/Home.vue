@@ -184,7 +184,9 @@
                         style="background: radial-gradient(circle at 100% 50%, rgba(0,0,0,0.7) 0%, rgba(5,5,5,0.58) 34%, rgba(5,5,5,0.3) 70%, transparent 100%);"
                       ></div>
                       <div class="relative bg-[#0b0b0b] border border-[#00ffff]/40 rounded-lg p-3">
-                        <p class="text-sm whitespace-pre-wrap text-[#555555] animate-pulse">{{ msg.content }}</p>
+                        <p class="text-sm whitespace-pre-wrap text-[#555555] animate-pulse">
+                          {{ msg.content }}<span v-if="msg.waitingStatusText" class="waiting-dots">{{ waitingEllipsis }}</span>
+                        </p>
                         <p class="text-[#555555] text-xs mt-1">{{ formatTime(msg.timestamp) }}</p>
                       </div>
                     </div>
@@ -326,57 +328,6 @@
                   </div>
                 </template>
               </template>
-
-            <!-- 流式状态行：后台任务/检索进行中（agent_status，task=琥珀色/search=蓝色）优先，
-                 否则显示首段 content 之后的 tool_status 提示；done/failed 后消失。与 NPC 主气泡同规格（光晕+头像列） -->
-              <div
-                v-if="msg.role === 'assistant' && msg.id === streamingAssistantMsgId && (activeAgentStatus || msg.postContentToolStatus)"
-                class="flex justify-end mt-1"
-              >
-                <div class="flex items-start gap-4" :class="chatBubbleMaxWidthClass">
-                  <div class="relative">
-                    <div
-                      class="pointer-events-none absolute inset-0 -m-6 rounded-2xl opacity-80 blur-[14px]"
-                      style="background: radial-gradient(circle at 100% 50%, rgba(0,0,0,0.7) 0%, rgba(5,5,5,0.58) 34%, rgba(5,5,5,0.3) 70%, transparent 100%);"
-                    ></div>
-                    <div
-                      class="relative bg-[#0b0b0b] rounded-lg p-3"
-                      :class="activeAgentStatus
-                        ? (activeAgentStatus.agent === 'task' ? 'border border-[#ffb454]/40' : 'border border-[#4da3ff]/40')
-                        : 'border border-[#00ffff]/40'"
-                    >
-                      <p class="text-sm whitespace-pre-wrap">
-                        <span
-                          v-if="activeAgentStatus"
-                          class="agent-status-text"
-                          :class="activeAgentStatus.agent === 'task' ? 'agent-status-task' : 'agent-status-search'"
-                        >{{ agentStatusText }}</span>
-                        <span v-else class="message-stream-tool-status">{{ msg.postContentToolStatus }}</span>
-                      </p>
-                    </div>
-                  </div>
-                  <div class="relative flex-shrink-0">
-                    <div
-                      class="absolute inset-0 -m-8 rounded-full opacity-90 blur-[14px] pointer-events-none"
-                      style="background: radial-gradient(circle, rgba(0,0,0,0.82) 0%, rgba(5,5,5,0.72) 35%, rgba(5,5,5,0.36) 70%, transparent 100%);"
-                    ></div>
-                    <div
-                      class="absolute inset-0 -m-1 rounded-full opacity-70 blur-[3px] pointer-events-none"
-                      style="background: radial-gradient(circle, rgba(0,255,255,0.9) 0%, rgba(0,255,255,0.35) 35%, transparent 70%);"
-                    ></div>
-                    <div
-                      class="relative w-14 h-14 rounded-full border-2 border-[#00ffff]/60 overflow-hidden bg-[#020202]/95 shadow-[0_0_12px_rgba(0,255,255,0.45)]"
-                    >
-                      <img
-                        :src="getAvatarUrl(currentSessionNpc)"
-                        :alt="currentSessionNpc"
-                        class="w-full h-full object-cover"
-                        @error="handleAvatarError"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
             </div>
 
             <!-- Loading 状态：仅当列表末尾没有任何等待反馈时显示（占位气泡 / system_notice 系统行 /
@@ -551,8 +502,7 @@ import {
   deleteSession,
   type Session,
   type ChatMessage,
-  type NpcCandidateItem,
-  type AgentStatusEventData
+  type NpcCandidateItem
 } from '../api/game'
 
 const playerStore = usePlayerStore()
@@ -595,33 +545,47 @@ const chatContainer = ref<HTMLDivElement>()
 const loadingPlaceholderActive = ref(false)
 const loadingPlaceholderMsgId = ref<number | null>(null)
 const loadingPlaceholderDefaultText = ref<string>('')
-// 从首段 content 到 done 之间仍为 true，用于状态行/重试按钮的归属判断
+// 从首段 content 到 done 之间仍为 true，用于重试按钮的归属判断
 const streamingAssistantMsgId = ref<number | null>(null)
-// 系统提示与正式对话之间的占位措辞（流式未结束、尚无正文时）
-const WAITING_FOR_TERMINAL_RESPONSE = '等待终端响应……'
+// 系统提示与正式对话之间的占位措辞（流式未结束、尚无正文时；省略号由动画补，不带）
+const WAITING_FOR_TERMINAL_RESPONSE = '等待终端响应'
 // 本地临时消息（系统行/错误行）的 id 计数器：走负数区，避免与时间戳 id 冲突
 let ephemeralMsgIdSeq = 0
 const nextEphemeralMsgId = () => --ephemeralMsgIdSeq
-// 本轮流式进行中的 agent_status（task 拟定 / search 检索），done/failed 后清空
-const activeAgentStatus = ref<AgentStatusEventData | null>(null)
-/** agent_status 各 phase 的兜底文案（后端未给 ui_hint 时使用） */
-const AGENT_PHASE_FALLBACK_TEXT: Record<AgentStatusEventData['phase'], string> = {
-  drafting: '拟定委托中',
-  repairing: '校验修正中',
-  searching: '查资料中',
-  done: '',
-  failed: '处理失败'
+
+// --- 等待提示的动态省略号：在 … 与 …… 之间切换（仅作用于带 waitingStatusText 的状态占位） ---
+const waitingEllipsis = ref<'…' | '……'>('…')
+let waitingEllipsisTimer: ReturnType<typeof setInterval> | null = null
+function ensureWaitingEllipsisTimer() {
+  if (waitingEllipsisTimer) return
+  waitingEllipsisTimer = setInterval(() => {
+    waitingEllipsis.value = waitingEllipsis.value === '…' ? '……' : '…'
+  }, 600)
 }
-const agentStatusText = computed(() => {
-  const s = activeAgentStatus.value
-  if (!s) return ''
-  return s.ui_hint?.trim() || AGENT_PHASE_FALLBACK_TEXT[s.phase] || '后台处理中'
-})
+function stopWaitingEllipsisTimer() {
+  if (waitingEllipsisTimer) {
+    clearInterval(waitingEllipsisTimer)
+    waitingEllipsisTimer = null
+  }
+}
+
+/**
+ * 状态提示（tool_status / agent_status 的 ui_hint）→ 状态占位的基础文案。
+ * 尾部已有的省略号（…/...）一律去掉，由动态省略号统一补；为空或超过 12 字时用兜底文案。
+ */
+function formatStreamStatusBaseText(text: string): string {
+  const t = (typeof text === 'string' ? text : '').trimEnd()
+  const base = t.replace(/(?:…|\.{3})+$/u, '').trimEnd()
+  if (!base || base.length > 12) {
+    return WAITING_FOR_TERMINAL_RESPONSE
+  }
+  return base
+}
 
 /**
  * 底部「正在链接终端…」兜底块是否显示：
- * 仅当列表末尾没有任何可见的等待反馈时才显示，避免与占位气泡 / system_notice 系统行 /
- * agent_status 状态条同时出现两条等待提示（流式期间 system_notice 常落在末尾）。
+ * 仅当列表末尾没有任何可见的等待反馈时才显示，避免与占位气泡 / system_notice 系统行
+ * 同时出现两条等待提示（流式期间 system_notice 常落在末尾）。
  */
 const showStreamWaitingFallback = computed(() => {
   if (!isLoading.value) return false
@@ -630,40 +594,16 @@ const showStreamWaitingFallback = computed(() => {
   // 系统行（system_notice / 错误行）已在末尾承担提示，不再叠加兜底块
   if (last.role === 'system') return false
   if (last.role === 'assistant') {
-    const hasAgentBar = last.id === streamingAssistantMsgId.value && !!activeAgentStatus.value
-    // 助手行既无正文、也无固定状态条时（如空 content）才需要兜底
-    return !(last.content ?? '').trim() && !last.postContentToolStatus && !hasAgentBar
+    // 状态占位（tool_status / agent_status 等待提示）已承担提示
+    if (last.waitingStatusText) return false
+    // 助手行无正文时（如空 content）才需要兜底
+    return !(last.content ?? '').trim()
   }
   return true
 })
 
-// 流式 tool_status 展示文案（与占位阶段规则一致）
-function formatStreamToolStatusDisplayText(text: string): string {
-  const safeTextRaw = typeof text === 'string' ? text : ''
-  const safeTextTrimmed = safeTextRaw.trimEnd()
-  const hasEllipsis = safeTextTrimmed.endsWith('…') || safeTextTrimmed.endsWith('...')
-  if (!safeTextTrimmed || safeTextTrimmed.length > 12) {
-    return WAITING_FOR_TERMINAL_RESPONSE
-  }
-  if (hasEllipsis) {
-    return safeTextTrimmed
-  }
-  const base = safeTextTrimmed.length >= 12 ? safeTextTrimmed.slice(0, 11) : safeTextTrimmed
-  return `${base}…`
-}
-
-/** 首段 content 之后：单独气泡用后端原文（仅过长时截断），避免 >12 字被置成「等待终端…」看不到真实状态 */
-function formatPostContentToolStatusBubbleText(text: string): string {
-  const t = (typeof text === 'string' ? text : '').trim()
-  if (!t) return WAITING_FOR_TERMINAL_RESPONSE
-  const max = 120
-  return t.length > max ? `${t.slice(0, max)}…` : t
-}
-
 // 一轮流式内：meta 只驱动一次立绘/好感/关系等级更新（v3 meta 必先于 content、每回合一次）
 const metaAppliedThisRound = ref(false)
-// 本轮是否已收到至少一段 content（用于区分「首段前的 tool_status」与「正文后的 tool_status」）
-const streamAssistantContentStarted = ref(false)
 
 // 立绘布局模式：'global-center' 全局居中；'right-docked' 右侧对齐展开；'right-center' 右侧 300px 区域内居中（默认）
 const illustrationMode = ref<'global-center' | 'right-docked' | 'right-center'>('right-center')
@@ -1236,7 +1176,7 @@ const selectSession = async (sessionId: string) => {
   loadingPlaceholderActive.value = false
   loadingPlaceholderMsgId.value = null
   streamingAssistantMsgId.value = null
-  activeAgentStatus.value = null
+  stopWaitingEllipsisTimer()
   favorability.value = null
   relationshipLevel.value = ''
   currentEmotion.value = '普通'
@@ -1351,7 +1291,7 @@ const exitSession = () => {
   loadingPlaceholderActive.value = false
   loadingPlaceholderMsgId.value = null
   streamingAssistantMsgId.value = null
-  activeAgentStatus.value = null
+  stopWaitingEllipsisTimer()
   favorability.value = null
   relationshipLevel.value = ''
   currentEmotion.value = '普通'
@@ -1451,10 +1391,11 @@ const sendChatMessage = async (options?: {
   await nextTick()
   scrollToBottom()
 
-  // 一条占位 NPC 消息，先显示「正在链接终端...」，收到首段流式内容后在同一条里做打字机
+  // 活动气泡：正文正在累积的 assistant 消息。被状态提示（tool_status / agent_status）打断后封口，
+  // 后续正文另起新气泡（「先说话→拟定→再说话」的多段对话各自独立成气泡）
   const placeholderText = isFirstMessage.value ? '[首次连接，等待终端加载...]' : '[正在链接终端...]'
-  let npcMsg: ChatMessage
-  let npcMsgIndex: number
+  let activeMsg: ChatMessage | null
+  let firstBubbleId: number
   if (options?.reuseAssistantMsgId) {
     const reuseIndex = chatMessages.value.findIndex(m => m.id === options.reuseAssistantMsgId)
     const reuseMsg = reuseIndex >= 0 ? chatMessages.value[reuseIndex] : null
@@ -1467,26 +1408,78 @@ const sendChatMessage = async (options?: {
     reuseMsg.role = 'assistant'
     reuseMsg.content = placeholderText
     reuseMsg.timestamp = Math.floor(Date.now() / 1000)
-    reuseMsg.postContentToolStatus = undefined
-    npcMsg = reuseMsg
-    npcMsgIndex = reuseIndex
+    reuseMsg.waitingStatusText = undefined
+    activeMsg = reuseMsg
+    firstBubbleId = reuseMsg.id
   } else {
-    npcMsg = {
+    const npcMsg: ChatMessage = {
       id: nextEphemeralMsgId(),
       role: 'assistant',
       content: placeholderText,
       timestamp: Math.floor(Date.now() / 1000)
     }
     chatMessages.value.push(npcMsg)
-    npcMsgIndex = chatMessages.value.length - 1
+    activeMsg = npcMsg
+    firstBubbleId = npcMsg.id
   }
   loadingPlaceholderActive.value = true
-  loadingPlaceholderMsgId.value = npcMsg.id
-  streamingAssistantMsgId.value = npcMsg.id
+  loadingPlaceholderMsgId.value = activeMsg.id
+  streamingAssistantMsgId.value = activeMsg.id
   loadingPlaceholderDefaultText.value = placeholderText
   metaAppliedThisRound.value = false
-  activeAgentStatus.value = null
-  streamAssistantContentStarted.value = false
+  ensureWaitingEllipsisTimer()
+
+  /** 新建一条「状态等待占位」气泡（tool_status / agent_status 的等待提示），成为当前活动气泡 */
+  const pushStatusPlaceholder = (base: string) => {
+    const m: ChatMessage = {
+      id: nextEphemeralMsgId(),
+      role: 'assistant',
+      content: base,
+      timestamp: Math.floor(Date.now() / 1000),
+      waitingStatusText: base
+    }
+    chatMessages.value.push(m)
+    loadingPlaceholderActive.value = true
+    loadingPlaceholderMsgId.value = m.id
+    streamingAssistantMsgId.value = m.id
+    ensureWaitingEllipsisTimer()
+    activeMsg = m
+    return m
+  }
+
+  /** 移除纯状态占位气泡（等待提示不留在对话记录里），活动气泡置空 */
+  const clearStatusPlaceholder = () => {
+    const m = activeMsg
+    if (m && m.waitingStatusText) {
+      const idx = chatMessages.value.indexOf(m)
+      if (idx >= 0) chatMessages.value.splice(idx, 1)
+    }
+    activeMsg = null
+    loadingPlaceholderActive.value = false
+    loadingPlaceholderMsgId.value = null
+    streamingAssistantMsgId.value = null
+  }
+
+  /** 展示状态等待提示：占位原地更新文案；已有正文的气泡先封口（视为结束），另起占位 */
+  const showStatusPlaceholder = (base: string) => {
+    if (!base) return
+    if (activeMsg && activeMsg.waitingStatusText) {
+      // 已是状态占位：仅更新文案
+      activeMsg.content = base
+      activeMsg.waitingStatusText = base
+      return
+    }
+    if (activeMsg && loadingPlaceholderActive.value && loadingPlaceholderMsgId.value === activeMsg.id) {
+      // 初始占位（尚未有正文）：原地转状态占位，不新增气泡
+      activeMsg.content = base
+      activeMsg.waitingStatusText = base
+      return
+    }
+    // 已有正文：封口当前气泡（中断 → 旧气泡视为结束），另起状态占位
+    clearStatusPlaceholder()
+    pushStatusPlaceholder(base)
+    nextTick().then(scrollToBottom)
+  }
 
   try {
     const payload: Parameters<typeof sendMessageStream>[0] = {
@@ -1525,49 +1518,46 @@ const sendChatMessage = async (options?: {
         }
       },
       onContent(delta) {
-        const msg = chatMessages.value[npcMsgIndex]
-        if (!msg) return
-        streamAssistantContentStarted.value = true
-        // 正文继续输出时仅保留对话气泡，去掉 content 之后挂的 tool_status 条
-        msg.postContentToolStatus = undefined
-        // 第一次收到 content 时退出占位，之后追加（打字机）；v3 content 为纯台词
-        if (loadingPlaceholderActive.value && loadingPlaceholderMsgId.value === msg.id) {
-          msg.content = delta
+        if (!delta) return
+        if (activeMsg && loadingPlaceholderActive.value && loadingPlaceholderMsgId.value === activeMsg.id) {
+          // 首段正文：替换状态占位文本，退出占位（同气泡打字机）
+          activeMsg.content = delta
+          activeMsg.waitingStatusText = undefined
           loadingPlaceholderActive.value = false
           loadingPlaceholderMsgId.value = null
+        } else if (activeMsg) {
+          activeMsg.content += delta
         } else {
-          msg.content += delta
+          // 气泡已被状态提示封口（先说话→拟定→再说话）：另起新气泡
+          const m: ChatMessage = {
+            id: nextEphemeralMsgId(),
+            role: 'assistant',
+            content: delta,
+            timestamp: Math.floor(Date.now() / 1000)
+          }
+          chatMessages.value.push(m)
+          streamingAssistantMsgId.value = m.id
+          activeMsg = m
         }
         nextTick().then(scrollToBottom)
       },
       onToolStatus(data) {
-        const msg = chatMessages.value[npcMsgIndex]
-        if (!msg) return
         // v3 字段：{tool, status, ui_hint}；ui_hint ≤12 字，缺失时用工具名兜底
         const text = data.ui_hint?.trim() || data.tool?.trim() || ''
-        if (!text) return
-
-        // 必须先判断：只要已有任意 content delta，后续 tool_status 一律进单独气泡（不覆盖主对话）
-        if (streamAssistantContentStarted.value) {
-          msg.postContentToolStatus = formatPostContentToolStatusBubbleText(text)
-          nextTick().then(scrollToBottom)
+        if (data.status === 'failed') {
+          clearStatusPlaceholder()
           return
         }
-
-        const safeText = formatStreamToolStatusDisplayText(text)
-        if (loadingPlaceholderActive.value && loadingPlaceholderMsgId.value === msg.id) {
-          msg.content = safeText
-          nextTick().then(scrollToBottom)
-        }
+        // 状态占位：无省略号时由动态省略号补（…/…… 切换），已有则不重复
+        showStatusPlaceholder(formatStreamStatusBaseText(text))
       },
-      // 后台工作进度（task 拟定委托 / search 查资料）：状态条展示，done/failed 后消失
+      // 后台工作进度（task 拟定委托 / search 查资料）：以状态占位气泡展示，done/failed 后消失
       onAgentStatus(data) {
         if (data.phase === 'done' || data.phase === 'failed') {
-          activeAgentStatus.value = null
+          clearStatusPlaceholder()
           return
         }
-        activeAgentStatus.value = data
-        nextTick().then(scrollToBottom)
+        showStatusPlaceholder(formatStreamStatusBaseText(data.ui_hint?.trim() || ''))
       },
       // 系统消息（草案已拟定/委托已发布/草案过期取消等）：独立系统行，替代旧 {花括号} 约定
       onSystemNotice(text) {
@@ -1586,21 +1576,16 @@ const sendChatMessage = async (options?: {
         nextTick().then(scrollToBottom)
       },
       onDone(data) {
-        streamingAssistantMsgId.value = null
-        activeAgentStatus.value = null
-        const msg = chatMessages.value[npcMsgIndex]
-
-        // v3 done 仅 {session_id, usage}：正文以 onContent 累积结果为准，绝不回写气泡（09 §5.1）
-        if (msg) {
-          msg.postContentToolStatus = undefined
-        }
-
+        // 移除状态占位（等待提示不留在对话记录里），停掉省略号动画
+        clearStatusPlaceholder()
         loadingPlaceholderActive.value = false
         loadingPlaceholderMsgId.value = null
         loadingPlaceholderDefaultText.value = ''
+        streamingAssistantMsgId.value = null
+        stopWaitingEllipsisTimer()
 
         const nextMap = { ...retryQueryByAssistantMsgId.value }
-        delete nextMap[npcMsg.id]
+        delete nextMap[firstBubbleId]
         retryQueryByAssistantMsgId.value = nextMap
 
         // 本会话累计 token 用量（供设置页展示；无统计的极端路径下为空）
@@ -1611,21 +1596,24 @@ const sendChatMessage = async (options?: {
         nextTick().then(scrollToBottom)
       },
       onError(err) {
-        streamingAssistantMsgId.value = null
-        activeAgentStatus.value = null
+        // v3 error 字段：{code, message, retryable}；retryable=false 时提示用户检查配置
+        const errorText = err.retryable ? err.message : `${err.message}（请检查 API 配置）`
+        const prevActive = activeMsg
+        const prevHasBody = !!prevActive && !prevActive.waitingStatusText && !!(prevActive.content ?? '').trim()
+        clearStatusPlaceholder()
         loadingPlaceholderActive.value = false
         loadingPlaceholderMsgId.value = null
         loadingPlaceholderDefaultText.value = ''
+        streamingAssistantMsgId.value = null
+        stopWaitingEllipsisTimer()
 
-        // v3 error 字段：{code, message, retryable}；retryable=false 时提示用户检查配置
-        const errorText = err.retryable ? err.message : `${err.message}（请检查 API 配置）`
-        const msg = chatMessages.value[npcMsgIndex]
         let systemMsgId: number
-        if (msg) {
-          msg.postContentToolStatus = undefined
-          msg.role = 'system'
-          msg.content = errorText
-          systemMsgId = msg.id
+        if (prevHasBody && prevActive) {
+          // 已有正文的活动气泡：原地转为 system 错误行（旧行为：错误时丢弃正文）
+          prevActive.role = 'system'
+          prevActive.content = errorText
+          prevActive.waitingStatusText = undefined
+          systemMsgId = prevActive.id
         } else {
           systemMsgId = nextEphemeralMsgId()
           chatMessages.value.push({
@@ -1647,50 +1635,62 @@ const sendChatMessage = async (options?: {
         nextTick().then(scrollToBottom)
       },
       onCancelled() {
-        streamingAssistantMsgId.value = null
-        activeAgentStatus.value = null
-        const msg = chatMessages.value[npcMsgIndex]
-        if (msg) msg.postContentToolStatus = undefined
         const cancelledTag = '（已终止）'
-
-        // 若取消发生在“占位阶段”（还没收到第一段 content），把占位文本改成明确的终止提示
-        if (msg && loadingPlaceholderActive.value && loadingPlaceholderMsgId.value === msg.id) {
-          msg.content = cancelledTag
-        } else if (msg) {
-          // 若已经开始输出部分正文，则不覆盖正文，只做“已终止”标记
-          const raw = msg.content ?? ''
-          const trimmed = raw.trimEnd()
-          if (!trimmed.endsWith(cancelledTag)) {
-            msg.content = trimmed + (trimmed ? '\n' : '') + cancelledTag
-          }
-        }
-        retryQueryByAssistantMsgId.value = {
-          ...retryQueryByAssistantMsgId.value,
-          [npcMsg.id]: message
-        }
-
+        const prevActive = activeMsg
+        const prevHasBody = !!prevActive && !prevActive.waitingStatusText && !!(prevActive.content ?? '').trim()
+        clearStatusPlaceholder()
         loadingPlaceholderActive.value = false
         loadingPlaceholderMsgId.value = null
         loadingPlaceholderDefaultText.value = ''
+        streamingAssistantMsgId.value = null
+        stopWaitingEllipsisTimer()
+
+        if (prevHasBody && prevActive) {
+          // 已有正文的气泡：不覆盖正文，只追加「已终止」标记
+          const trimmed = (prevActive.content ?? '').trimEnd()
+          if (!trimmed.endsWith(cancelledTag)) {
+            prevActive.content = trimmed + (trimmed ? '\n' : '') + cancelledTag
+          }
+          retryQueryByAssistantMsgId.value = {
+            ...retryQueryByAssistantMsgId.value,
+            [prevActive.id]: message
+          }
+        } else {
+          // 占位阶段被取消：明确的终止提示（system 行），保留重试入口
+          const systemMsgId = nextEphemeralMsgId()
+          chatMessages.value.push({
+            id: systemMsgId,
+            role: 'system',
+            content: cancelledTag,
+            timestamp: Math.floor(Date.now() / 1000)
+          })
+          retryQueryByAssistantMsgId.value = {
+            ...retryQueryByAssistantMsgId.value,
+            [systemMsgId]: message
+          }
+        }
         nextTick().then(scrollToBottom)
       }
     }, { signal: abortControllerRef.value?.signal })
   } catch (error) {
     console.error('Failed to send message:', error)
-    streamingAssistantMsgId.value = null
-    activeAgentStatus.value = null
-    const msg = chatMessages.value[npcMsgIndex]
+    // 前端侧异常（网络中断等）视为可重试，系统行上提供「重试」入口
+    const errorText = '连接终端失败，请检查网络或API配置'
+    const prevActive = activeMsg
+    const prevHasBody = !!prevActive && !prevActive.waitingStatusText && !!(prevActive.content ?? '').trim()
+    clearStatusPlaceholder()
     loadingPlaceholderActive.value = false
     loadingPlaceholderMsgId.value = null
     loadingPlaceholderDefaultText.value = ''
-    // 前端侧异常（网络中断等）视为可重试，系统行上提供「重试」入口
-    const errorText = '连接终端失败，请检查网络或API配置'
+    streamingAssistantMsgId.value = null
+    stopWaitingEllipsisTimer()
+
     let systemMsgId: number
-    if (msg) {
-      msg.postContentToolStatus = undefined
-      msg.role = 'system'
-      msg.content = errorText
-      systemMsgId = msg.id
+    if (prevHasBody && prevActive) {
+      prevActive.role = 'system'
+      prevActive.content = errorText
+      prevActive.waitingStatusText = undefined
+      systemMsgId = prevActive.id
     } else {
       systemMsgId = nextEphemeralMsgId()
       chatMessages.value.push({
@@ -1712,16 +1712,15 @@ const sendChatMessage = async (options?: {
     streamingAssistantMsgId.value = null
     isLoading.value = false
     abortControllerRef.value = null
+    stopWaitingEllipsisTimer()
   }
 }
 
-// 是否为流式占位 NPC（用于在气泡上显示加载动画）
-// 以「是否已收到首段 SSE content」为准
+// 是否为流式占位气泡（占位文案尚未被首段 content 替换时显示加载样式）
 const isLoadingPlaceholder = (msg: ChatMessage) =>
   loadingPlaceholderActive.value &&
   loadingPlaceholderMsgId.value === msg.id &&
-  msg.role === 'assistant' &&
-  !streamAssistantContentStarted.value
+  msg.role === 'assistant'
 
 // 流式/静态消息解析：【】内为动作描写，方括号不显示，仅内容用 action 样式
 type ContentNode = { type: 'action' | 'text'; content: string }
@@ -1923,6 +1922,7 @@ onUnmounted(() => {
   illustrationResizeObserver?.disconnect()
   illustrationResizeObserver = null
   window.removeEventListener('resize', updateIllustrationContainerWidth)
+  stopWaitingEllipsisTimer()
 })
 </script>
 
@@ -1966,38 +1966,10 @@ onUnmounted(() => {
   transform: translateY(4px);
 }
 
-/* 流式 tool_status 单独气泡内：终端状态条专用字色与等宽字系，与对白青字区分 */
-.message-stream-tool-status {
-  color: #555555;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
-  font-size: 0.875rem;
-  line-height: 1.5;
-  letter-spacing: 0.04em;
-  animation: message-stream-tool-status-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-@keyframes message-stream-tool-status-pulse {
-  0%,
-  100% {
-    opacity: 0.72;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
-/* agent_status 状态条：后台任务=琥珀色 / 检索=蓝色，等待期间脉冲呼吸 */
-.agent-status-text {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
-  font-size: 0.875rem;
-  line-height: 1.5;
-  letter-spacing: 0.04em;
-  animation: message-stream-tool-status-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-.agent-status-task {
-  color: #ffb454;
-}
-.agent-status-search {
-  color: #4da3ff;
+/* 状态等待占位（tool_status / agent_status）的动态省略号：由脚本在 … 与 …… 间切换文案，
+   这里只负责与占位正文同样的灰色系呈现，不额外加边框 */
+.waiting-dots {
+  color: inherit;
 }
 
 /* 动作/心理/神态描写：灰色、斜体、略小，与对话区分；【】不显示，由 parseActionNodes 已剥离 */

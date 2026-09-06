@@ -38,9 +38,10 @@ export interface ChatMessage {
   content: string
   timestamp: number
   /**
-   * 流式专用：已在首段 content 之后收到的 tool_status，单独显示在主对话气泡下方（done 时清除）
+   * 流式专用：状态等待占位（tool_status / agent_status 的提示文案）。
+   * 非空表示该气泡是纯等待提示（不承载正文），省略号由动态省略号统一补
    */
-  postContentToolStatus?: string
+  waitingStatusText?: string
 }
 
 // 历史记录响应（后端按时间正序返回，messages[0] 为最早一条）
