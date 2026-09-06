@@ -379,11 +379,9 @@
               </div>
             </div>
 
-            <!-- Loading 状态：仅当「最后一条是用户消息」（占位 NPC 消息尚未建立）时显示，避免与占位/系统行重复成两条 -->
-            <div
-              v-if="isLoading && (chatMessages.length === 0 || chatMessages[chatMessages.length - 1]?.role === 'user')"
-              class="flex justify-end items-center gap-3"
-            >
+            <!-- Loading 状态：仅当列表末尾没有任何等待反馈时显示（占位气泡 / system_notice 系统行 /
+                 agent_status 状态条已承担提示时不重复出现第二条） -->
+            <div v-if="showStreamWaitingFallback" class="flex justify-end items-center gap-3">
               <div class="bg-[#111111] border border-[#00ffff]/30 rounded-lg p-3">
                 <p class="text-[#555555] text-sm animate-pulse">
                   {{ isFirstMessage ? '[首次连接，等待终端加载...]' : '[正在链接终端...]' }}
@@ -620,6 +618,25 @@ const agentStatusText = computed(() => {
   return s.ui_hint?.trim() || AGENT_PHASE_FALLBACK_TEXT[s.phase] || '后台处理中'
 })
 
+/**
+ * 底部「正在链接终端…」兜底块是否显示：
+ * 仅当列表末尾没有任何可见的等待反馈时才显示，避免与占位气泡 / system_notice 系统行 /
+ * agent_status 状态条同时出现两条等待提示（流式期间 system_notice 常落在末尾）。
+ */
+const showStreamWaitingFallback = computed(() => {
+  if (!isLoading.value) return false
+  const last = chatMessages.value[chatMessages.value.length - 1]
+  if (!last) return true
+  // 系统行（system_notice / 错误行）已在末尾承担提示，不再叠加兜底块
+  if (last.role === 'system') return false
+  if (last.role === 'assistant') {
+    const hasAgentBar = last.id === streamingAssistantMsgId.value && !!activeAgentStatus.value
+    // 助手行既无正文、也无固定状态条时（如空 content）才需要兜底
+    return !(last.content ?? '').trim() && !last.postContentToolStatus && !hasAgentBar
+  }
+  return true
+})
+
 // 流式 tool_status 展示文案（与占位阶段规则一致）
 function formatStreamToolStatusDisplayText(text: string): string {
   const safeTextRaw = typeof text === 'string' ? text : ''
@@ -651,24 +668,21 @@ const streamAssistantContentStarted = ref(false)
 // 立绘布局模式：'global-center' 全局居中；'right-docked' 右侧对齐展开；'right-center' 右侧 300px 区域内居中（默认）
 const illustrationMode = ref<'global-center' | 'right-docked' | 'right-center'>('right-center')
 
-// v3 立绘来自游戏对话立绘 manifest 查表（external 1024×576 / internal 775×1000 原始 PNG 直出），
-// 不同角色/表情尺寸不同：统一按显示高度 600px 等比缩放，X 边界由非透明像素动态计算（居中/右对齐用）
+// SWF 导出立绘的源图与有效区域（4096×2304，有效区域约 (200,1600)..(3500,100)，底边 y=1600 对齐）
+const ILLUST_SOURCE_WIDTH = 4096
+const ILLUST_SOURCE_HEIGHT = 2304
+const ILLUST_CONTENT_TOP_Y = 100
+const ILLUST_CONTENT_BOTTOM_Y = 1600
+// 未正确算到非透明边界时使用的默认有效 X 范围（大部分立绘在 200–2300）
+const ILLUST_DEFAULT_BOUNDS = { left: 200, right: 2300, centerX: 1250 }
 const ILLUST_DISPLAY_HEIGHT = 600
-// alpha 扫描的采样画布最大宽度（原图等比缩到该宽度内再扫描，控制开销）
-const ILLUST_SAMPLE_MAX_WIDTH = 1024
+const ILLUST_SCALE = ILLUST_DISPLAY_HEIGHT / ILLUST_CONTENT_BOTTOM_Y // 0.375
+const ILLUST_DISPLAY_WIDTH = Math.round(ILLUST_SOURCE_WIDTH * ILLUST_SCALE)
+const ILLUST_SCALED_HEIGHT = Math.round(ILLUST_SOURCE_HEIGHT * ILLUST_SCALE)
 
-type IllustrationGeometry = {
-  naturalWidth: number
-  naturalHeight: number
-  /** 内容区 X 边界（源图坐标），用于居中/右对齐定位 */
-  left: number
-  right: number
-  centerX: number
-}
-
-// 当前显示立绘的几何信息（含源图尺寸），算完（或失败走默认值）后再显示立绘，避免错位闪现
-const illustrationGeometry = ref<IllustrationGeometry | null>(null)
-const illustrationBoundsCache = new Map<string, IllustrationGeometry>()
+// 立绘内容在 X 方向上的边界（由非透明像素计算，在 y∈[0,1600] 内），用于居中和右对齐
+const illustrationContentBounds = ref<{ left: number; right: number; centerX: number } | null>(null)
+const illustrationBoundsCache = new Map<string, { left: number; right: number; centerX: number }>()
 const illustrationContainerRef = ref<HTMLDivElement | null>(null)
 const illustrationContainerWidth = ref(0)
 const illustrationImgRef = ref<HTMLImageElement | null>(null)
@@ -855,16 +869,17 @@ const illustrationOverlayStyle = computed(() => {
   }
 })
 
-// 立绘图片样式：按源图实际高度缩放到 600px 显示高，X 方向同比例；偏移按「实际渲染宽度/标称宽度」再乘一遍，避免被容器二次缩放时错位
+// 立绘图片样式：y 方向按 1600→600 缩放，x 方向同比例；偏移按「实际渲染宽度/1536」再乘一遍，避免被容器二次缩放时错位
 const illustrationImgStyle = computed(() => {
-  const g = illustrationGeometry.value
-  if (!currentIllustrationUrl.value || illustrationError.value || !g) return {}
-  const scale = ILLUST_DISPLAY_HEIGHT / g.naturalHeight
-  const displayWidth = Math.round(g.naturalWidth * scale)
-  const nominalCenterPx = g.centerX * scale
-  const nominalRightPx = g.right * scale
+  if (!currentIllustrationUrl.value || illustrationError.value) return {}
+  const b = illustrationContentBounds.value
+  const centerX = b ? b.centerX : ILLUST_DEFAULT_BOUNDS.centerX
+  const contentRight = b ? b.right : ILLUST_DEFAULT_BOUNDS.right
+  const scale = ILLUST_SCALE
+  const nominalCenterPx = centerX * scale
+  const nominalRightPx = contentRight * scale
   const renderedW = illustrationImgRenderedWidth.value
-  const ratio = renderedW > 0 ? renderedW / displayWidth : 1
+  const ratio = renderedW > 0 ? renderedW / ILLUST_DISPLAY_WIDTH : 1
   const centerPx = Math.round(nominalCenterPx * ratio)
   const rightPx = Math.round(nominalRightPx * ratio)
   let left: string
@@ -878,9 +893,9 @@ const illustrationImgStyle = computed(() => {
   const ox = illustrationOffset.value.x
   const oy = illustrationOffset.value.y
   return {
-    width: `${displayWidth}px`,
-    height: `${ILLUST_DISPLAY_HEIGHT}px`,
-    minWidth: `${displayWidth}px`,
+    width: `${ILLUST_DISPLAY_WIDTH}px`,
+    height: `${ILLUST_SCALED_HEIGHT}px`,
+    minWidth: `${ILLUST_DISPLAY_WIDTH}px`,
     maxWidth: 'none',
     top: '0',
     left,
@@ -916,66 +931,62 @@ const handleAvatarError = (event: Event, npcName?: string) => {
 // 立绘加载失败处理
 const handleIllustrationError = () => {
   illustrationError.value = true
-  illustrationGeometry.value = null
+  illustrationContentBounds.value = null
   // 标记当前 NPC+情绪 的立绘无效，避免本次页面生命周期内重复请求
   if (currentSessionNpc.value && currentEmotion.value) {
     markIllustrationInvalid(currentSessionNpc.value, currentEmotion.value)
   }
 }
 
-// 用已加载的立绘 img（不新建请求，避免 CORS）做 alpha 扫描算 X 左右边界与中点，返回源图坐标几何信息
-function computeIllustrationGeometry(img: HTMLImageElement, imgSrc: string): IllustrationGeometry {
+// 用已加载的立绘 img（不新建请求，避免 CORS）在 y∈[100,1600] 对应区域算 X 左右边界与中点，返回 4096 源图坐标
+function getIllustrationContentBounds(img: HTMLImageElement, imgSrc: string): Promise<{ left: number; right: number; centerX: number } | null> {
   const cached = illustrationBoundsCache.get(imgSrc)
-  if (cached) return cached
+  if (cached) return Promise.resolve(cached)
 
-  const naturalWidth = img.naturalWidth || 0
-  const naturalHeight = img.naturalHeight || 0
-  // 采样失败时的兜底：整幅图视为内容区（居中/右对齐退化为按整图定位）
-  const fallback: IllustrationGeometry = {
-    naturalWidth: naturalWidth || ILLUST_DISPLAY_HEIGHT,
-    naturalHeight: naturalHeight || ILLUST_DISPLAY_HEIGHT,
-    left: 0,
-    right: naturalWidth || ILLUST_DISPLAY_HEIGHT,
-    centerX: Math.round((naturalWidth || ILLUST_DISPLAY_HEIGHT) / 2)
-  }
-  if (!naturalWidth || !naturalHeight) return fallback
-
-  try {
-    const sampleW = Math.min(ILLUST_SAMPLE_MAX_WIDTH, naturalWidth)
-    const sampleH = Math.max(1, Math.round((naturalHeight / naturalWidth) * sampleW))
-    const canvas = document.createElement('canvas')
-    canvas.width = sampleW
-    canvas.height = sampleH
-    const ctx = canvas.getContext('2d', { willReadFrequently: true })
-    if (!ctx) return fallback
-    ctx.drawImage(img, 0, 0, sampleW, sampleH)
-    const data = ctx.getImageData(0, 0, sampleW, sampleH).data
-    const alphaThreshold = 20
-    let left = sampleW
-    let right = 0
-    for (let y = 0; y < sampleH; y++) {
-      for (let x = 0; x < sampleW; x++) {
-        const a = data[(y * sampleW + x) * 4 + 3]
-        if (a && a > alphaThreshold) {
-          if (x < left) left = x
-          if (x > right) right = x
+  return new Promise((resolve) => {
+    try {
+      const sampleW = 2048
+      const sampleH = 1152
+      const canvas = document.createElement('canvas')
+      canvas.width = sampleW
+      canvas.height = sampleH
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        resolve(null)
+        return
+      }
+      ctx.drawImage(img, 0, 0, sampleW, sampleH)
+      const data = ctx.getImageData(0, 0, sampleW, sampleH).data
+      const alphaThreshold = 20
+      const contentTopSampleY = Math.floor((ILLUST_CONTENT_TOP_Y / ILLUST_SOURCE_HEIGHT) * sampleH)
+      const contentBottomSampleY = Math.floor((ILLUST_CONTENT_BOTTOM_Y / ILLUST_SOURCE_HEIGHT) * sampleH)
+      let left = sampleW
+      let right = 0
+      for (let y = contentTopSampleY; y <= contentBottomSampleY; y++) {
+        for (let x = 0; x < sampleW; x++) {
+          const a = data[(y * sampleW + x) * 4 + 3]
+          if (a && a > alphaThreshold) {
+            if (x < left) left = x
+            if (x > right) right = x
+          }
         }
       }
+      if (left > right) {
+        resolve(null)
+        return
+      }
+      const scaleToSource = ILLUST_SOURCE_WIDTH / sampleW
+      const result = {
+        left: Math.round(left * scaleToSource),
+        right: Math.round(right * scaleToSource),
+        centerX: Math.round((left + right) * 0.5 * scaleToSource)
+      }
+      illustrationBoundsCache.set(imgSrc, result)
+      resolve(result)
+    } catch {
+      resolve(null)
     }
-    if (left > right) return fallback
-    const scaleToSource = naturalWidth / sampleW
-    const geometry: IllustrationGeometry = {
-      naturalWidth,
-      naturalHeight,
-      left: Math.round(left * scaleToSource),
-      right: Math.round(right * scaleToSource),
-      centerX: Math.round((left + right) * 0.5 * scaleToSource)
-    }
-    illustrationBoundsCache.set(imgSrc, geometry)
-    return geometry
-  } catch {
-    return fallback
-  }
+  })
 }
 
 // 根据立绘 img 实际渲染宽度更新（y 缩到 600 后若再被容器缩放，需按此比例修正 centerPx/rightPx）
@@ -989,26 +1000,30 @@ function updateIllustrationImgRenderedSize() {
 // 2) 同 NPC：仅当有效范围宽度变化超过阈值时隐藏，避免小幅表情变化也出现黑一下
 function shouldHideDuringIllustrationSwitch(
   nextNpc: string,
-  nextGeometry: IllustrationGeometry | null
+  nextBounds: { left: number; right: number; centerX: number } | null
 ) {
   if (!illustrationDisplayUrl.value) return false
   const prevNpc = illustrationDisplayNpc.value
   if (!prevNpc || prevNpc !== nextNpc) return true
-  const prevGeometry = illustrationGeometry.value
-  if (!prevGeometry || !nextGeometry) return false
-  const prevW = Math.max(1, prevGeometry.right - prevGeometry.left)
-  const nextW = Math.max(1, nextGeometry.right - nextGeometry.left)
+  const prevBounds = illustrationContentBounds.value
+  if (!prevBounds || !nextBounds) return false
+  const prevW = Math.max(1, prevBounds.right - prevBounds.left)
+  const nextW = Math.max(1, nextBounds.right - nextBounds.left)
   const widthChangeRatio = Math.abs(nextW - prevW) / prevW
   return widthChangeRatio > 0.1
 }
 
-// 可见立绘 img load：新图解码完成后再显示（illustrationReady）并更新尺寸，避免仍显示上一张图时先套用新 NPC 的几何信息造成瞬移
+// 可见立绘 img load：新图解码完成后再显示（illustrationReady）并更新尺寸，避免仍显示上一张图时先套用新 NPC 的 contentBounds 造成瞬移
 async function onDisplayIllustrationLoad(event: Event) {
   const img = event.target as HTMLImageElement
   const url = illustrationDisplayUrl.value
   if (!img || !url) return
-  if (!illustrationGeometry.value) {
-    illustrationGeometry.value = computeIllustrationGeometry(img, url)
+  if (!illustrationContentBounds.value) {
+    const bounds = await getIllustrationContentBounds(img, url)
+    if (illustrationDisplayUrl.value !== url) return
+    if (bounds) {
+      illustrationContentBounds.value = bounds
+    }
   }
   await nextTick()
   if (illustrationDisplayUrl.value !== url) return
@@ -1021,14 +1036,16 @@ async function onPendingIllustrationLoad() {
   const img = illustrationPendingImgRef.value
   const url = illustrationPendingUrl.value
   if (!img || !url || currentIllustrationUrl.value !== url) return
-  const geometry = computeIllustrationGeometry(img, url)
+  const bounds = await getIllustrationContentBounds(img, url)
   if (currentIllustrationUrl.value !== url) return
   const nextNpc = currentSessionNpc.value
-  const shouldHide = shouldHideDuringIllustrationSwitch(nextNpc, geometry)
+  const shouldHide = shouldHideDuringIllustrationSwitch(nextNpc, bounds)
   if (shouldHide) {
     illustrationReady.value = false
   }
-  illustrationGeometry.value = geometry
+  if (bounds) {
+    illustrationContentBounds.value = bounds
+  }
   // 必须先切换 displayUrl，再应用该 NPC 已保存的布局；否则仍显示上一张立绘时就会先套上错误位置，造成「闪回」
   illustrationDisplayUrl.value = url
   illustrationDisplayNpc.value = nextNpc
@@ -1090,7 +1107,7 @@ watch(currentIllustrationUrl, (url) => {
     illustrationDisplayUrl.value = ''
     illustrationDisplayNpc.value = ''
     illustrationPendingUrl.value = ''
-    illustrationGeometry.value = null
+    illustrationContentBounds.value = null
     illustrationReady.value = false
     pendingIllustrationLayout.value = null
     pendingIllustrationLayoutForUrl.value = ''
@@ -1105,7 +1122,7 @@ watch(currentIllustrationUrl, (url) => {
     if (shouldHide) {
       illustrationReady.value = false
     }
-    illustrationGeometry.value = cached
+    illustrationContentBounds.value = cached
     illustrationDisplayUrl.value = url
     illustrationDisplayNpc.value = nextNpc
     illustrationPendingUrl.value = ''
@@ -1121,11 +1138,11 @@ watch(currentIllustrationUrl, (url) => {
     pendingIllustrationLayoutForUrl.value = url
     return
   }
-  // 无缓存且当前无显示（如刷新后首帧）：先用兜底几何占位；等可见图 load 后再算真实几何并显示
+  // 无缓存且当前无显示（如刷新后首帧）：用默认边界占位；等可见图 load 后再算真实边界并显示
   illustrationDisplayUrl.value = url
   illustrationDisplayNpc.value = currentSessionNpc.value
   illustrationPendingUrl.value = ''
-  illustrationGeometry.value = null
+  illustrationContentBounds.value = null
   pendingIllustrationLayout.value = null
   pendingIllustrationLayoutForUrl.value = ''
   applyIllustrationLayout(savedLayout)
@@ -1422,7 +1439,7 @@ const sendChatMessage = async (options?: {
   // 常规发送：添加用户消息；重试发送：复用原消息，不新增用户消息
   if (!options?.skipUserAppend) {
     const tempUserMsg: ChatMessage = {
-      id: Date.now(),
+      id: nextEphemeralMsgId(),
       role: 'user',
       content: message,
       timestamp: Math.floor(Date.now() / 1000)
@@ -1455,7 +1472,7 @@ const sendChatMessage = async (options?: {
     npcMsgIndex = reuseIndex
   } else {
     npcMsg = {
-      id: Date.now() + 1,
+      id: nextEphemeralMsgId(),
       role: 'assistant',
       content: placeholderText,
       timestamp: Math.floor(Date.now() / 1000)
@@ -1610,7 +1627,7 @@ const sendChatMessage = async (options?: {
           msg.content = errorText
           systemMsgId = msg.id
         } else {
-          systemMsgId = Date.now() + 2
+          systemMsgId = nextEphemeralMsgId()
           chatMessages.value.push({
             id: systemMsgId,
             role: 'system',
@@ -1675,7 +1692,7 @@ const sendChatMessage = async (options?: {
       msg.content = errorText
       systemMsgId = msg.id
     } else {
-      systemMsgId = Date.now() + 2
+      systemMsgId = nextEphemeralMsgId()
       chatMessages.value.push({
         id: systemMsgId,
         role: 'system',
