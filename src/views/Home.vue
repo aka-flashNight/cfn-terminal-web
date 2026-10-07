@@ -132,7 +132,7 @@
           <!-- 可滚动的消息区域 -->
           <div
             ref="chatContainer"
-            class="absolute inset-0 overflow-y-auto overflow-x-hidden p-4 space-y-4 z-10"
+            class="chat-scroll-area absolute inset-0 overflow-y-auto overflow-x-hidden p-4 space-y-4 z-10"
             :class="{ 'pr-[316px]': currentIllustrationUrl && !illustrationError && illustrationMode !== 'global-center' }"
             @scroll="onChatScroll"
           >

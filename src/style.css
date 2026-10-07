@@ -159,3 +159,17 @@ button:focus {
     transform: translateY(100vh);
   }
 }
+
+/* ------------------------------------------------------------------
+   游戏内嵌面板（iframe，可用视口约 1000×500）：紧凑断点。
+   仅当 URL 带 ?embedded=1（根节点 .embedded-mode）时生效；
+   standalone 不带该类名，样式与现有行为逐像素一致。
+   ------------------------------------------------------------------ */
+
+.embedded-mode aside {
+  width: 210px;
+}
+
+.embedded-mode .chat-scroll-area {
+  padding: 12px;
+}
