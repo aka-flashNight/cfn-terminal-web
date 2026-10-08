@@ -1,6 +1,6 @@
 <template>
   <!-- 聊天面板头部 -->
-  <div class="p-4 border-b border-[#333333] flex items-center justify-between bg-[#111111]/50">
+  <div class="chat-header p-4 border-b border-[#333333] flex items-center justify-between bg-[#111111]/50">
     <div class="flex items-center gap-3">
       <button
         type="button"

@@ -331,7 +331,7 @@
               class="bg-[#ff0040]/10 border border-[#ff0040]/50 rounded p-3"
             >
               <p class="text-[#ff0040] text-sm font-mono">
-                [WARNING] 您需要填写必要信息才能正常使用对话功能，或在后端.env 文件进行 api 相关配置
+                [WARNING] 您需要填写必要信息才能正常使用对话功能
               </p>
             </div>
 

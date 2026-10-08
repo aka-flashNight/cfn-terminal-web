@@ -161,7 +161,7 @@ button:focus {
 }
 
 /* ------------------------------------------------------------------
-   游戏内嵌面板（iframe，可用视口约 1000×500）：紧凑断点。
+   游戏内嵌面板（iframe，面板内 CSS 视口与浏览器 100% 等距）：紧凑断点。
    仅当 URL 带 ?embedded=1（根节点 .embedded-mode）时生效；
    standalone 不带该类名，样式与现有行为逐像素一致。
    ------------------------------------------------------------------ */
@@ -172,4 +172,9 @@ button:focus {
 
 .embedded-mode .chat-scroll-area {
   padding: 12px;
+}
+
+/* 让位游戏侧右上角的面板关闭按钮（ragchat.css .ragchat-close-btn） */
+.embedded-mode .chat-header {
+  padding-right: 52px;
 }
