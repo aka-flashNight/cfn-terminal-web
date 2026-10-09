@@ -17,8 +17,8 @@
 - **立绘展示** - 立绘布局模式（全局居中 / 右侧对齐 / 右侧居中），支持拖动微调位置
 - **角色设定** - 可配置玩家身份（性别、游戏进度等），影响 NPC 对话内容
 - **AI 模型与代理** - 自定义 API Key、Base URL、模型名称；可选填代理服务器地址以访问 AI 服务
-- **Agent 工具状态与系统通知** - 流式回复期间可展示工具调用进度（`tool_status`），任务草案/发布等系统通知以居中提示展示（`system`）
-- **立绘与知识库** - 设置内可补充/重新生成立绘（含从 SWF 导出），可重置知识库（重新生成向量库）
+- **Agent 后台工作与系统通知** - 流式回复期间可展示后端同步工具进度（`tool_status`）与后台子 Agent 工作进度（`agent_status`，如「准备候选中」「拟定委托中」「查资料中」），任务草案/发布等系统消息以居中提示展示（`system_notice`）
+- **知识库** - 设置内可重置知识库（重新生成向量库）；立绘由游戏对话立绘资源体系提供，无需手动生成
 
 ## 技术栈
 
@@ -68,31 +68,37 @@ npm run build
 - `PUT /api/game/sessions/:sessionId/title` - 重命名会话（请求体 `{ "title": "新标题" }`）
 - `GET /api/game/history/:sessionId` - 获取会话历史记录
 - `POST /api/game/ask` - 发送消息并获取 NPC 回复（非流式）
-- `POST /api/game/ask?stream=true` - 流式发送消息（SSE：`content` / `done` / `tool_status` / `system` / `error` 事件）
+- `POST /api/game/ask?stream=true` - 流式发送消息（SSE：`meta` / `content` / `tool_status` / `agent_status` / `system_notice` / `done` / `error` 事件）
 
-**Ask 请求体补充**：`agent_enabled`（boolean，可选，前端默认 `true`）— 关闭时不走 Agent（工具/任务等）；开启时调用与 token 通常更高，建议后端/模型侧配合缓存命中。
+**Ask 请求体补充**：`agent_enabled`（boolean，可选，前端默认 `true`）— 关闭时后端不下发任何路由工具、提示词也不提任务发布，NPC 只聊天；`summarize_interval`（10/30/100/500，默认 30）— 精确短期记忆的对话条数档位。
 
 ### SSE 事件约定（/api/game/ask?stream=true）
 
-后端以 Server-Sent Events 推送多类事件，前端按 `event:` 分发解析：
+后端以 Server-Sent Events 推送多类事件，前端按 `event:` 分发解析（权威定义见后端仓 `docs/v3-developer/09-前端适配说明.md`）：
 
-- **content**：`data: {"delta": "..."}`  
-  打字机增量，按顺序拼接为最终回复（其中 `【...】` 仍按动作描写解析渲染）。
-- **done**：`data: { reply, npc_name, favorability, relationship_level, favorability_change, emotion, ... }`  
-  最终整包数据（`reply` 为最终回复文本）。
-- **tool_status**：`data: { "text": "...", "tool_name": "..." }`  
-  工具调用/思考进度。前端**只展示 `text`**（不展示 `tool_name`）；若 `text` 末尾没有 `…` 或 `...`，会自动补一个 `…` 作为“进行中”提示。
-- **system**：`data: { "text": "[任务草案已更新]", "draft_id"?: "...", "task_id"?: "..." }`  
-  系统通知（任务拟定/发布等）。前端会将其写入当前 NPC 回复开头，格式为 `{[...]}`
-  并以**居中系统通知样式**单独成段渲染（与动作 `【...】` 分离）。
-  - 若当前消息仅包含系统块 `{...}`（含换行）而暂未产生对话正文，为避免视觉“空白”，仍会保留 NPC 气泡显示：优先沿用最近一次 `tool_status.text`，否则回退为默认连接提示。
+- **meta**：`data: { emotion, favorability_change, favorability, relationship_level }`  
+  每回合**有且仅有一次，且必先于一切 content**；收到即切立绘、更新好感度条。
+- **content**：`data: { "delta": "..." }`  
+  打字机增量，按顺序拼接为最终回复；只含 NPC 台词（其中 `【...】` 仍按动作描写解析渲染），不再有 `{花括号}` 系统文本。
+- **tool_status**：`data: { tool, status, ui_hint }`  
+  后端同步工具进度（发布/取消委托等），`status ∈ running/success/failed`。前端展示 `ui_hint`（≤12 字，缺失时回退 `tool`），`failed` 时清除等待占位。
+- **agent_status**：`data: { agent, phase, ui_hint }`  
+  后台子 Agent 进度，`agent ∈ task/search`，`phase ∈ drafting/repairing/searching/done/failed`。以状态占位气泡展示（`ui_hint` 如「准备候选中」「拟定委托中」「查资料中」），`done`/`failed` 后清除占位。
+- **system_notice**：`data: { "text": "..." }`  
+  系统消息（任务草案已拟定/委托已发布/草案过期取消/错误说明），按**居中系统通知样式**单独成行渲染。
+- **done**：`data: { session_id, usage?: { prompt_tokens, completion_tokens, cached_tokens } }`  
+  回合结束标记。v3 的 done **不再携带** `reply`/`favorability` 等整包字段，回复文本一律以流式 `content` 为准（旧版用 `data.reply` 覆盖流式文本会导致气泡先显示后消失）。
+- **error**：`data: { code, message, retryable }`  
+  不可恢复错误；`retryable=false` 时提示用户检查模型配置。
+- 另有 SSE 注释帧 `: keep-alive`（无 `event:` 名），是等待后台子 Agent 时的保活帧，按规范跳过 `:` 开头的行即可。
+
+**等待期的气泡行为**：`meta` 之后可能先出现一段静默期（NPC 决定把活派给后台 Agent 时，那一轮不说话）。前端用「初始占位 → 状态占位 → 首段正文」的同一气泡原地演进处理：占位文本先显示 `tool_status`/`agent_status` 的 `ui_hint`，第一段 `content` 到达时替换占位文本并退出占位态；若占位已被封口，则另起新气泡。
 
 **NPC 与资源**
 
 - `GET /api/game/npc/:npcName/favorability` - 获取指定 NPC 的好感度与关系等级
 - `GET /api/assets/avatar/:npcName` - 获取 NPC 头像
-- `GET /api/assets/illustration/:npcName/:emotion` - 获取 NPC 立绘
-- `POST /api/assets/export-illustrations` - 导出/生成立绘（请求体 `{ "overwrite": boolean }`，从 SWF 导出可能需数分钟）
+- `GET /api/assets/illustration/:npcName/:emotion` - 获取 NPC 立绘（按游戏对话立绘 manifest 查表，返回源 PNG，裁剪/取景由前端负责）
 
 **知识库**
 
@@ -105,9 +111,10 @@ npm run build
 - **玩家身份** - 设置性别和游戏进度，影响 NPC 对你的称呼和对话内容
 - **AI 模型** - 配置 API Key、Base URL 和模型名称（如 OpenAI、Claude 等）
 - **代理服务器** - 可选；若需通过代理访问 AI 服务，可填写代理地址，留空则使用系统代理或不使用代理
-- **Agent 能力** - 默认开启；关闭可降低 ask 的 API 频率与 token。开启时 NPC 可使用 Agent（如发布任务），建议配合带缓存命中能力的 AI 服务
-- **立绘管理** - 可「补充缺失立绘」或「重新生成全部立绘」；立绘可从 illustration.zip 解压或从 SWF 导出（后者需较长时间）
+- **Agent 能力** - 默认开启；关闭后后端既不下发路由工具、提示词也不提任务发布，NPC 只聊天（不能派发/确认/取消委托、不代查资料），调用次数与 token 随之下降
+- **精确短期记忆长度** - 逐字带入上下文的最近对话条数（10/30/100/500，默认 30）；会话另有不受此项影响的永久模糊记忆（滚动摘要）。档位越大越吃模型上下文窗口，token 消耗也越高
 - **重置知识库** - 可强制后端重新生成向量库（如文档或设定变更后）
+- 立绘无需在此管理：NPC 立绘由游戏项目的对话立绘资源体系提供，后端按 manifest 查表直出
 
 ## 前端使用说明（用户操作指南）
 
@@ -175,17 +182,16 @@ npm run build
 
 - **佣兵档案**：性别、当前进度、一句话介绍（影响 NPC 对话与称呼）。
 - **系统配置**：模型名称、API Base、API Key；可选「记住 API Key」（会写入本地存储，公共电脑慎用）；代理服务器地址。
-- **立绘管理**：  
-  - **补充缺失立绘**：只生成当前缺失的立绘（有 illustration.zip 则解压，无则可能从 SWF 导出，耗时较长）。  
-  - **重新生成全部立绘**：覆盖并重新生成全部立绘。  
-  从 SWF 导成立绘可能需数分钟甚至更久，请耐心等待；完成后建议 **刷新页面**。
+- **Agent 能力**：默认开启。关闭后 NPC 只聊天，不再派发/确认/取消委托，也不代查资料；调用次数与 token 随之下降。
+- **精确短期记忆长度**：逐字带入上下文的最近对话条数（10/30/100/500，默认 30）。会话另有不受此项影响的永久模糊记忆（滚动摘要），此项只决定「精确」那一段有多长；档位越大越吃模型上下文窗口，token 消耗也越高。
 - **重置知识库**：强制后端重新生成向量库（例如文档或设定更新后使用）。系统会提示「正在重置知识库，请稍候…」。
+
+NPC 立绘由游戏项目的对话立绘资源体系提供，设置面板不再有需要手动生成/导出立绘的按钮。
 
 **注意事项：**
 
-- 确保系统使用 **UTF-8** 编码，否则解压的立绘文件名可能乱码。
 - API Key 若勾选「记住」会保存在浏览器本地，在公共设备上建议不勾选。
-- 立绘导出、知识库重置等操作可能耗时较长，请勿在未完成前关闭页面或重复点击。
+- 知识库重置可能耗时较长且对设备占用较高，请勿在未完成前关闭页面或重复点击；非特殊情况下无需重置。
 
 ### 其他说明
 
