@@ -246,11 +246,9 @@ export const usePlayerStore = defineStore('player', () => {
   const proxy_url = ref<string>('') // 代理服务器地址
   const hasConfigured = ref<boolean>(false) // 标记用户是否已保存过配置
   const remember_api_key = ref<boolean>(true) // 默认记住 API Key
-  /**
-   * 最近一次 done 事件上报的本会话累计 token 用量（仅内存，不持久化）；
-   * 无统计的极端路径下可能为空
-   */
-  const lastTurnUsage = ref<{ prompt_tokens?: number; completion_tokens?: number; cached_tokens?: number; total_tokens?: number } | null>(null)
+  const agent_enabled = ref<boolean>(true) // Agent 能力总开关，默认开启
+  /** 精确短期记忆长度档位：10=短 30=中 100=长 500=几乎无限 */
+  const summarize_interval = ref<number>(30)
 
   // Getters
   const playerIdentity = computed(() => {
@@ -299,7 +297,9 @@ export const usePlayerStore = defineStore('player', () => {
       model_name: model_name.value,
       proxy_url: proxy_url.value,
       hasConfigured: true,
-      remember_api_key: remember_api_key.value
+      remember_api_key: remember_api_key.value,
+      agent_enabled: agent_enabled.value,
+      summarize_interval: summarize_interval.value
     }
     localStorage.setItem('player-settings', JSON.stringify(persistentData))
 
@@ -329,6 +329,10 @@ export const usePlayerStore = defineStore('player', () => {
         proxy_url.value = data.proxy_url || ''
         hasConfigured.value = data.hasConfigured || false
         remember_api_key.value = data.remember_api_key !== false // 默认为 true
+        agent_enabled.value = data.agent_enabled !== false // 默认为 true
+        summarize_interval.value = [10, 30, 100, 500].includes(Number(data.summarize_interval))
+          ? Number(data.summarize_interval)
+          : 30
       } catch (error) {
         console.error('Failed to load player settings from localStorage:', error)
       }
@@ -369,7 +373,8 @@ export const usePlayerStore = defineStore('player', () => {
     proxy_url,
     hasConfigured,
     remember_api_key,
-    lastTurnUsage,
+    agent_enabled,
+    summarize_interval,
 
     // Getters
     playerIdentity,

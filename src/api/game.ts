@@ -50,7 +50,7 @@ export interface SessionHistoryResponse {
   messages: ChatMessage[]
 }
 
-// 发送消息请求（v3：不再有 agent_enabled / summarize_interval）
+// 发送消息请求
 export interface NPCChatRequest {
   query: string
   npc_name: string
@@ -62,6 +62,13 @@ export interface NPCChatRequest {
   api_base?: string | null
   model_name?: string | null
   proxy_url?: string | null
+  /**
+   * 是否启用 Agent 能力（工具调用、任务发布等）。
+   * 关闭后走无 Agent 路径，调用与 token 通常更低。
+   */
+  agent_enabled?: boolean | null
+  /** 精确短期记忆长度档位：10/30/100/500 */
+  summarize_interval?: number | null
   /** 剧情进度阶段：废城→雪山 对应 1→6，已通关为第 7 阶段 */
   progress_stage?: number | null
 }

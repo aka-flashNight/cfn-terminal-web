@@ -1491,6 +1491,8 @@ const sendChatMessage = async (options?: {
       api_base: playerStore.api_base || null,
       model_name: playerStore.model_name || null,
       proxy_url: playerStore.proxy_url || null,
+      agent_enabled: playerStore.agent_enabled,
+      summarize_interval: playerStore.summarize_interval,
       progress_stage: playerStore.storyProgressStage ?? null
     }
     if (currentEmotion.value?.trim()) {
@@ -1575,7 +1577,7 @@ const sendChatMessage = async (options?: {
         }
         nextTick().then(scrollToBottom)
       },
-      onDone(data) {
+      onDone() {
         // 移除状态占位（等待提示不留在对话记录里），停掉省略号动画
         clearStatusPlaceholder()
         loadingPlaceholderActive.value = false
@@ -1587,9 +1589,6 @@ const sendChatMessage = async (options?: {
         const nextMap = { ...retryQueryByAssistantMsgId.value }
         delete nextMap[firstBubbleId]
         retryQueryByAssistantMsgId.value = nextMap
-
-        // 本会话累计 token 用量（供设置页展示；无统计的极端路径下为空）
-        playerStore.lastTurnUsage = data.usage ?? null
 
         // 情绪/好感/关系等级终态已由 meta 事件应用，done 不再重复处理
         isFirstMessage.value = false
