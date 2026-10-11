@@ -44,7 +44,7 @@
         <!-- 内容 -->
         <div class="p-6 max-h-[60vh] overflow-y-auto">
           <form @submit.prevent="handleSave" class="space-y-5">
-            <!-- 角色卡（性别/进度/简介）：embedded 下由游戏存档投影替代，不显示手填表单 -->
+            <!-- 角色卡：standalone 手填（性别/进度）；embedded 由存档档案只读五项替代 -->
             <template v-if="!embedded">
             <!-- 性别 -->
             <div>
@@ -100,8 +100,38 @@
                 <option :value="Progress.CLEARED">已通关</option>
               </select>
             </div>
+            </template>
 
-            <!-- 一句话介绍 -->
+            <!-- 存档档案（embedded 只读）：五项由绑定存档投影推导/携带，随绑定状态自动刷新 -->
+            <template v-else>
+            <div class="bg-[#111111] border border-[#00ffff]/50 rounded p-4">
+              <h3 class="text-xs font-medium text-[#00ffff] mb-2 font-mono uppercase tracking-wider">存档档案</h3>
+              <div class="grid grid-cols-2 gap-x-6 gap-y-2 text-sm font-mono">
+                <div class="flex gap-2 min-w-0">
+                  <span class="text-[#888888] shrink-0">名字</span>
+                  <span class="text-[#00ff41] truncate">{{ saveCard.name }}</span>
+                </div>
+                <div class="flex gap-2 min-w-0">
+                  <span class="text-[#888888] shrink-0">性别</span>
+                  <span class="text-[#00ff41]">{{ saveCard.gender }}</span>
+                </div>
+                <div class="flex gap-2 min-w-0">
+                  <span class="text-[#888888] shrink-0">阶段</span>
+                  <span class="text-[#00ff41]">{{ saveCard.stage }}</span>
+                </div>
+                <div class="flex gap-2 min-w-0">
+                  <span class="text-[#888888] shrink-0">称号</span>
+                  <span class="text-[#00ff41] truncate">{{ saveCard.title }}</span>
+                </div>
+                <div class="flex gap-2 min-w-0">
+                  <span class="text-[#888888] shrink-0">等级</span>
+                  <span class="text-[#00ff41]">{{ saveCard.level }}</span>
+                </div>
+              </div>
+            </div>
+            </template>
+
+            <!-- 一句话介绍（embedded 下仍可编辑，随身份描述一起交给 AI） -->
             <div>
               <label class="block text-sm font-medium mb-2 text-[#00ff41] font-mono">
                 > 一句话介绍
@@ -117,7 +147,6 @@
                 {{ formData.bio.length }}/30
               </div>
             </div>
-            </template>
 
             <!-- 分隔区域：系统配置 -->
             <div class="pt-4 border-t border-[#333333]">
@@ -425,6 +454,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { usePlayerStore, Gender, Progress, inferApiBase, PROGRESS_TO_IDENTITY, COMMON_PLATFORMS, getPlatformByValue, inferPlatformFromApiBase } from '../stores/player'
+import { formatSaveCard, type IntegrationStatus } from '../utils/integration'
 import { resetKnowledgeBase } from '../api/game'
 import type { AxiosError } from 'axios'
 
@@ -436,8 +466,10 @@ const props = withDefaults(
     modelValue: boolean
     /** 游戏内嵌面板：隐藏手填角色卡（W2-1，由存档投影替代） */
     embedded?: boolean
+    /** 集成状态快照（embedded 存档档案只读展示数据源；standalone 恒为 null） */
+    integrationStatus?: IntegrationStatus | null
   }>(),
-  { embedded: false }
+  { embedded: false, integrationStatus: null }
 )
 
 const emit = defineEmits<{
@@ -468,6 +500,9 @@ const summarizeIntervalIndex = computed(() => {
   const idx = SUMMARY_INTERVAL_OPTIONS.indexOf(formData.value.summarize_interval as 10 | 30 | 100 | 500)
   return idx >= 0 ? idx : 1
 })
+
+/** 存档档案五项（embedded）：名字/性别/阶段/称号/等级，来自绑定存档投影 */
+const saveCard = computed(() => formatSaveCard(props.integrationStatus))
 
 const onSummarizeIntervalInput = (e: Event) => {
   const target = e.target as HTMLInputElement

@@ -41,6 +41,17 @@ export const PROGRESS_TO_STAGE_INDEX: Record<ProgressType, number> = {
   [Progress.CLEARED]: 7
 }
 
+// 阶段索引 → 进度档（PROGRESS_TO_STAGE_INDEX 的逆映射；embedded 下对齐存档推导阶段用）
+export const STAGE_INDEX_TO_PROGRESS: Record<number, ProgressType> = {
+  1: Progress.WASTED_CITY,
+  2: Progress.FALLEN_CITY,
+  3: Progress.WARLORD,
+  4: Progress.BLACK_IRON_HQ,
+  5: Progress.NOAH,
+  6: Progress.SNOW_MOUNTAIN,
+  7: Progress.CLEARED
+}
+
 // 常见平台 API Base 配置映射（包含中转站、云平台、官方等）
 // 用于用户手动选择平台时快速切换 API Base
 export const COMMON_PLATFORMS = {
@@ -240,6 +251,9 @@ export const usePlayerStore = defineStore('player', () => {
   const gender = ref<GenderType>(Gender.UNKNOWN)
   const progress = ref<ProgressType>(Progress.WASTED_CITY)
   const bio = ref<string>('')
+  // 存档驱动覆盖（embedded 绑定存档时由集成状态写入；standalone 恒为 null，不影响自填值）
+  const saveGender = ref<GenderType | null>(null)
+  const saveProgress = ref<ProgressType | null>(null)
   const api_key = ref<string>('')
   const api_base = ref<string>('')
   const model_name = ref<string>('')
@@ -251,9 +265,13 @@ export const usePlayerStore = defineStore('player', () => {
   const summarize_interval = ref<number>(30)
 
   // Getters
+  // 有效档位：存档覆盖优先（embedded 绑定），无覆盖回落本地自填值
+  const effectiveGender = computed(() => saveGender.value ?? gender.value)
+  const effectiveProgress = computed(() => saveProgress.value ?? progress.value)
+
   const playerIdentity = computed(() => {
-    const identity = PROGRESS_TO_IDENTITY[progress.value]
-    const genderText = gender.value === Gender.UNKNOWN ? '' : gender.value
+    const identity = PROGRESS_TO_IDENTITY[effectiveProgress.value]
+    const genderText = effectiveGender.value === Gender.UNKNOWN ? '' : effectiveGender.value
     const bioText = bio.value ? `，${bio.value}` : ''
 
     // 只对指定阶段强化“佣兵”后的称号
@@ -262,15 +280,27 @@ export const usePlayerStore = defineStore('player', () => {
       [Progress.SNOW_MOUNTAIN]: '，顶级强者',
       [Progress.CLEARED]: '，绝世高手'
     }
-    const powerText = powerDescriptorByProgress[progress.value] ?? ''
+    const powerText = powerDescriptorByProgress[effectiveProgress.value] ?? ''
 
     return `一名 A 兵团${identity}${genderText}佣兵${powerText}${bioText}。`
   })
 
-  // 数值型剧情进度阶段：废城→雪山 对应 1→6，已通关为 7
-  const storyProgressStage = computed(() => PROGRESS_TO_STAGE_INDEX[progress.value] ?? 1)
+  // 数值型剧情进度阶段：废城→雪山 对应 1→6，已通关为 7（embedded 下随存档覆盖对齐）
+  const storyProgressStage = computed(() => PROGRESS_TO_STAGE_INDEX[effectiveProgress.value] ?? 1)
 
   // Actions
+  /**
+   * 写入/清除存档驱动覆盖（embedded 集成层调用）。
+   * 绑定存档可推导时身份与阶段以投影为准；传 null 清除、回落本地自填值。
+   * 只改有效值，不改写 gender/progress，也不落盘（standalone 配置保持零污染）。
+   */
+  const applySaveIdentity = (
+    next: { gender: GenderType | null; progress: ProgressType | null } | null
+  ) => {
+    saveGender.value = next?.gender ?? null
+    saveProgress.value = next?.progress ?? null
+  }
+
   const updateModelName = (newModelName: string) => {
     model_name.value = newModelName
 
@@ -381,6 +411,7 @@ export const usePlayerStore = defineStore('player', () => {
     storyProgressStage,
 
     // Actions
+    applySaveIdentity,
     updateModelName,
     saveToLocalStorage,
     loadFromLocalStorage

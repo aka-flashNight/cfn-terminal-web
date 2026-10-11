@@ -438,7 +438,11 @@
     </main>
 
     <!-- 设置弹窗 -->
-    <SettingsModal v-model="showSettings" :embedded="isEmbedded" />
+    <SettingsModal
+      v-model="showSettings"
+      :embedded="isEmbedded"
+      :integration-status="integrationStatus"
+    />
 
     <!-- 新建会话弹窗 -->
     <NewSessionModal
@@ -477,7 +481,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
-import { usePlayerStore } from '../stores/player'
+import { usePlayerStore, Gender, STAGE_INDEX_TO_PROGRESS } from '../stores/player'
 import SettingsModal from '../components/SettingsModal.vue'
 import NewSessionModal from '../components/NewSessionModal.vue'
 import SessionActionMenu from '../components/SessionActionMenu.vue'
@@ -1191,6 +1195,16 @@ const refreshIntegrationStatus = async () => {
     || (prev.character?.name ?? '') !== (next.character?.name ?? '')
   )
   integrationStatus.value = next
+  // 存档驱动身份（embedded）：阶段/性别随绑定投影对齐，storyProgressStage 与身份描述随之生效；
+  // 解绑时状态段为空自然回落本地自填值。仅写 store 覆盖层，不改动也不落盘 standalone 配置。
+  const rawGender = (next.player?.gender ?? '').trim()
+  playerStore.applySaveIdentity({
+    gender: rawGender === '男' ? Gender.MALE
+      : rawGender === '女' ? Gender.FEMALE
+      : rawGender === '未知' ? Gender.UNKNOWN
+      : null,
+    progress: next.stage != null ? STAGE_INDEX_TO_PROGRESS[next.stage] ?? null : null,
+  })
   if (!bindingChanged) return
   await loadSessions()
   if (currentSessionId.value
