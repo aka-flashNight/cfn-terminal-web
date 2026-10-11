@@ -327,6 +327,29 @@
               </div>
             </div>
 
+            <!-- 跨对话长期记忆（仅非游戏打开时显示；游戏内嵌恒定启用，后端不受理关闭） -->
+            <div v-if="!embedded">
+              <div class="block text-sm font-medium mb-2 text-[#00ff41] font-mono">
+                &gt; 跨对话长期记忆
+              </div>
+              <div class="space-y-2">
+                <label class="flex items-center cursor-pointer group">
+                  <input
+                    id="settings-long-term-memory"
+                    v-model="formData.long_term_memory_enabled"
+                    type="checkbox"
+                    class="mr-2 accent-[#00ff41] w-4 h-4"
+                  />
+                  <span class="text-gray-400 group-hover:text-[#00ff41] transition-colors text-sm">
+                    启用跨对话长期记忆
+                  </span>
+                </label>
+                <p class="text-[#555555] text-xs font-mono leading-relaxed">
+                  [提示] 启用后，NPC 会把与你的整体关系和重大事件记在对话窗口之外，下次再聊仍然记得。<span class="text-[#ffaa00]">会增加提示词长度与 token 消耗。</span>游戏内打开时该功能恒定启用，不在此设置。
+                </p>
+              </div>
+            </div>
+
             <!-- 历史记录长度 -->
             <div>
               <label class="block text-sm font-medium mb-2 text-[#00ff41] font-mono">
@@ -493,6 +516,7 @@ const formData = ref({
   proxy_url: playerStore.proxy_url,
   remember_api_key: playerStore.remember_api_key,
   agent_enabled: playerStore.agent_enabled,
+  long_term_memory_enabled: playerStore.long_term_memory_enabled,
   summarize_interval: playerStore.summarize_interval
 })
 
@@ -587,6 +611,7 @@ const handleSave = () => {
   playerStore.proxy_url = formData.value.proxy_url
   playerStore.remember_api_key = formData.value.remember_api_key
   playerStore.agent_enabled = formData.value.agent_enabled
+  playerStore.long_term_memory_enabled = formData.value.long_term_memory_enabled
   playerStore.summarize_interval = formData.value.summarize_interval
 
   // 保存到 localStorage（内部会再规整一次 api_base）

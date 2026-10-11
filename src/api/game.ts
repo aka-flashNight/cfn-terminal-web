@@ -67,6 +67,11 @@ export interface NPCChatRequest {
    * 关闭后走无 Agent 路径，调用与 token 通常更低。
    */
   agent_enabled?: boolean | null
+  /**
+   * 是否启用跨对话长期记忆。
+   * 游戏内嵌（embedded）时后端恒定启用、不受理本字段的关闭；非游戏打开时按本字段生效。
+   */
+  long_term_memory_enabled?: boolean | null
   /** 精确短期记忆长度档位：10/30/100/500 */
   summarize_interval?: number | null
   /** 剧情进度阶段：废城→雪山 对应 1→6，已通关为第 7 阶段 */

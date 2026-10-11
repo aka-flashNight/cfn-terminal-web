@@ -1538,6 +1538,7 @@ const sendChatMessage = async (options?: {
       model_name: playerStore.model_name || null,
       proxy_url: playerStore.proxy_url || null,
       agent_enabled: playerStore.agent_enabled,
+      long_term_memory_enabled: playerStore.long_term_memory_enabled,
       summarize_interval: playerStore.summarize_interval,
       progress_stage: playerStore.storyProgressStage ?? null
     }

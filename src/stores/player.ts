@@ -261,6 +261,8 @@ export const usePlayerStore = defineStore('player', () => {
   const hasConfigured = ref<boolean>(false) // 标记用户是否已保存过配置
   const remember_api_key = ref<boolean>(true) // 默认记住 API Key
   const agent_enabled = ref<boolean>(true) // Agent 能力总开关，默认开启
+  // 跨对话长期记忆开关：仅非游戏打开（standalone）时受理，游戏内嵌恒定启用且不显示开关；默认关闭
+  const long_term_memory_enabled = ref<boolean>(false)
   /** 精确短期记忆长度档位：10=短 30=中 100=长 500=几乎无限 */
   const summarize_interval = ref<number>(30)
 
@@ -329,6 +331,7 @@ export const usePlayerStore = defineStore('player', () => {
       hasConfigured: true,
       remember_api_key: remember_api_key.value,
       agent_enabled: agent_enabled.value,
+      long_term_memory_enabled: long_term_memory_enabled.value,
       summarize_interval: summarize_interval.value
     }
     localStorage.setItem('player-settings', JSON.stringify(persistentData))
@@ -360,6 +363,9 @@ export const usePlayerStore = defineStore('player', () => {
         hasConfigured.value = data.hasConfigured || false
         remember_api_key.value = data.remember_api_key !== false // 默认为 true
         agent_enabled.value = data.agent_enabled !== false // 默认为 true
+        // 默认关闭：老配置里没有该字段时必须落到 false，不能用 `!== false` 惯用法
+        long_term_memory_enabled.value =
+          typeof data.long_term_memory_enabled === 'boolean' ? data.long_term_memory_enabled : false
         summarize_interval.value = [10, 30, 100, 500].includes(Number(data.summarize_interval))
           ? Number(data.summarize_interval)
           : 30
@@ -404,6 +410,7 @@ export const usePlayerStore = defineStore('player', () => {
     hasConfigured,
     remember_api_key,
     agent_enabled,
+    long_term_memory_enabled,
     summarize_interval,
 
     // Getters
