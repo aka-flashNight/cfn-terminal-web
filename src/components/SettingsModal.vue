@@ -44,6 +44,8 @@
         <!-- 内容 -->
         <div class="p-6 max-h-[60vh] overflow-y-auto">
           <form @submit.prevent="handleSave" class="space-y-5">
+            <!-- 角色卡（性别/进度/简介）：embedded 下由游戏存档投影替代，不显示手填表单 -->
+            <template v-if="!embedded">
             <!-- 性别 -->
             <div>
               <label class="block text-sm font-medium mb-2 text-[#00ff41] font-mono">
@@ -115,6 +117,7 @@
                 {{ formData.bio.length }}/30
               </div>
             </div>
+            </template>
 
             <!-- 分隔区域：系统配置 -->
             <div class="pt-4 border-t border-[#333333]">
@@ -385,8 +388,8 @@
               </p>
             </div>
 
-            <!-- 预览 -->
-            <div class="bg-[#111111] border border-[#00ffff]/50 rounded p-4">
+            <!-- 预览（embedded 下不显示手填身份预览） -->
+            <div v-if="!embedded" class="bg-[#111111] border border-[#00ffff]/50 rounded p-4">
               <h3 class="text-xs font-medium text-[#00ffff] mb-2 font-mono uppercase tracking-wider">身份预览</h3>
               <p class="text-[#00ff41] text-sm font-mono">{{ previewIdentity }}</p>
             </div>
@@ -428,9 +431,14 @@ import type { AxiosError } from 'axios'
 type GenderType = typeof Gender[keyof typeof Gender]
 type ProgressType = typeof Progress[keyof typeof Progress]
 
-const props = defineProps<{
-  modelValue: boolean
-}>()
+const props = withDefaults(
+  defineProps<{
+    modelValue: boolean
+    /** 游戏内嵌面板：隐藏手填角色卡（W2-1，由存档投影替代） */
+    embedded?: boolean
+  }>(),
+  { embedded: false }
+)
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: boolean): void

@@ -7,13 +7,28 @@
       <p class="text-[#888888] text-sm font-mono">通讯终端</p>
     </div>
 
-    <!-- 佣兵身份预览 -->
-    <div v-if="hasCoreSettings" class="mb-8 p-4 bg-[#111111] border border-[#00ffff]/30 rounded max-w-xl">
+    <!-- 绑定条（embedded）：角色卡由游戏存档投影替代，未绑定时给引导 -->
+    <div
+      v-if="embedded && boundLabel"
+      class="mb-8 p-4 bg-[#111111] border border-[#00ff41]/40 rounded max-w-xl"
+    >
+      <p class="text-[#00ff41] text-xs mb-1 font-mono uppercase">已绑定存档</p>
+      <p class="text-[#00ff41] font-mono">{{ boundLabel }}</p>
+    </div>
+    <div
+      v-else-if="embedded"
+      class="mb-8 p-4 bg-[#111111] border border-[#ffaa00]/50 rounded max-w-xl"
+    >
+      <p class="text-[#ffaa00] text-sm font-mono">[WARNING] 尚未绑定存档：请在游戏中载入存档，终端将自动同步。</p>
+    </div>
+
+    <!-- 佣兵身份预览（standalone） -->
+    <div v-else-if="hasCoreSettings" class="mb-8 p-4 bg-[#111111] border border-[#00ffff]/30 rounded max-w-xl">
       <p class="text-[#00ffff] text-xs mb-1 font-mono uppercase">当前身份</p>
       <p class="text-[#00ff41] font-mono">{{ playerIdentity }}</p>
     </div>
 
-    <!-- 未配置提示 -->
+    <!-- 未配置提示（standalone） -->
     <div v-else class="mb-8 p-4 bg-[#111111] border border-[#ff0040]/50 rounded max-w-xl">
       <p class="text-[#ff0040] text-sm font-mono">[WARNING] 请先完成佣兵档案配置</p>
       <button
@@ -124,6 +139,10 @@ function getFactionDisplayLabel(label: string): string {
 const props = defineProps<{
   hasCoreSettings: boolean
   playerIdentity: string
+  /** 游戏内嵌面板：隐藏手填身份卡，改显示存档绑定条（W2-1） */
+  embedded?: boolean
+  /** 绑定条文案「角色名（短码）」；空串＝未绑定 */
+  boundLabel?: string
   loadingSessions: boolean
   validatingNpcs: boolean
   validNpcCandidates: NpcCandidateItem[]

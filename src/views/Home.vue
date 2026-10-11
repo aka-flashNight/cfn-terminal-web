@@ -425,6 +425,8 @@
         v-else
         :has-core-settings="hasCoreSettings"
         :player-identity="playerStore.playerIdentity"
+        :embedded="isEmbedded"
+        :bound-label="boundLabel"
         :loading-sessions="loadingSessions"
         :validating-npcs="validatingNpcs"
         :valid-npc-candidates="validNpcCandidates"
@@ -436,7 +438,7 @@
     </main>
 
     <!-- 设置弹窗 -->
-    <SettingsModal v-model="showSettings" />
+    <SettingsModal v-model="showSettings" :embedded="isEmbedded" />
 
     <!-- 新建会话弹窗 -->
     <NewSessionModal
@@ -484,6 +486,8 @@ import DeleteSessionConfirmModal from '../components/DeleteSessionConfirmModal.v
 import SessionSidebar from '../components/SessionSidebar.vue'
 import ChatHeader from '../components/ChatHeader.vue'
 import NpcCandidateView from '../components/NpcCandidateView.vue'
+import { isEmbedded } from '../utils/embedded'
+import { fetchIntegrationStatus, formatBoundLabel, type IntegrationStatus } from '../utils/integration'
 import {
   getAvatarUrl,
   getIllustrationUrl,
@@ -1164,6 +1168,34 @@ const loadSessions = async (isRetry: boolean = false) => {
   } finally {
     loadingSessions.value = false
     validatingNpcs.value = false // 验证结束
+  }
+}
+
+// --- 集成状态（embedded 面板，W2-1）：绑定条数据源；standalone 恒为 null 且不发请求 ---
+const integrationStatus = ref<IntegrationStatus | null>(null)
+const boundLabel = computed(() => formatBoundLabel(integrationStatus.value))
+const INTEGRATION_POLL_INTERVAL_MS = 10000
+let integrationPollTimer: ReturnType<typeof setInterval> | null = null
+
+/**
+ * 轮询集成状态（仅 embedded）：绑定槽位/角色变化时刷新绑定条与会话列表，
+ * 并退出已不属于新绑定存档的当前会话（列表已按 B2-5 过滤，保持视图一致）。
+ * 请求失败静默保持现状。
+ */
+const refreshIntegrationStatus = async () => {
+  const next = await fetchIntegrationStatus()
+  if (next == null) return
+  const prev = integrationStatus.value
+  const bindingChanged = prev != null && (
+    (prev.bound_slot ?? '') !== (next.bound_slot ?? '')
+    || (prev.character?.name ?? '') !== (next.character?.name ?? '')
+  )
+  integrationStatus.value = next
+  if (!bindingChanged) return
+  await loadSessions()
+  if (currentSessionId.value
+      && !sessions.value.some(s => s.session_id === currentSessionId.value)) {
+    exitSession()
   }
 }
 
@@ -1914,6 +1946,11 @@ onMounted(() => {
   if (!hasCoreSettings.value) {
     showSettings.value = true
   }
+  if (isEmbedded) {
+    // embedded 面板：拉取绑定状态并把绑定条与会话列表保持在当前作用域上
+    refreshIntegrationStatus()
+    integrationPollTimer = setInterval(refreshIntegrationStatus, INTEGRATION_POLL_INTERVAL_MS)
+  }
   window.addEventListener('resize', updateIllustrationContainerWidth)
 })
 
@@ -1922,6 +1959,10 @@ onUnmounted(() => {
   illustrationResizeObserver = null
   window.removeEventListener('resize', updateIllustrationContainerWidth)
   stopWaitingEllipsisTimer()
+  if (integrationPollTimer) {
+    clearInterval(integrationPollTimer)
+    integrationPollTimer = null
+  }
 })
 </script>
 
