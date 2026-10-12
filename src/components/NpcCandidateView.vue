@@ -12,7 +12,7 @@
       v-if="embedded && boundLabel"
       class="mb-8 p-4 bg-[#111111] border border-[#00ff41]/40 rounded max-w-xl"
     >
-      <p class="text-[#00ff41] text-xs mb-1 font-mono uppercase">已绑定存档</p>
+      <p class="text-[#00ff41] text-xs mb-1 font-mono uppercase">已连接身份认证</p>
       <p class="text-[#00ff41] font-mono">{{ boundLabel }}</p>
     </div>
     <div
@@ -141,7 +141,7 @@ const props = defineProps<{
   playerIdentity: string
   /** 游戏内嵌面板：隐藏手填身份卡，改显示存档绑定条（W2-1） */
   embedded?: boolean
-  /** 绑定条文案「角色名（短码）」；空串＝未绑定 */
+  /** 绑定条文案「姓名，身份一句话」；空串＝未绑定 */
   boundLabel?: string
   loadingSessions: boolean
   validatingNpcs: boolean

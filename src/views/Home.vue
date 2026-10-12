@@ -1177,7 +1177,7 @@ const loadSessions = async (isRetry: boolean = false) => {
 
 // --- 集成状态（embedded 面板，W2-1）：绑定条数据源；standalone 恒为 null 且不发请求 ---
 const integrationStatus = ref<IntegrationStatus | null>(null)
-const boundLabel = computed(() => formatBoundLabel(integrationStatus.value))
+const boundLabel = computed(() => formatBoundLabel(integrationStatus.value, playerStore.playerIdentity))
 const INTEGRATION_POLL_INTERVAL_MS = 10000
 let integrationPollTimer: ReturnType<typeof setInterval> | null = null
 

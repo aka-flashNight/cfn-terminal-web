@@ -39,17 +39,12 @@ export async function fetchIntegrationStatus(): Promise<IntegrationStatus | null
   }
 }
 
-/** 槽位短码：长键截断展示（cf7_xxx… → cf7_xxxxxxxx…），短键原样。 */
-export function shortSlotLabel(slot: string): string {
-  return slot.length <= 15 ? slot : `${slot.slice(0, 12)}…`
-}
-
-/** 绑定条文案「角色名（短码）」；无绑定返回空串。 */
-export function formatBoundLabel(status: IntegrationStatus | null): string {
+/** 绑定条文案「姓名，身份一句话」；未绑定返回空串（身份串由 playerStore 随存档投影对齐后给出）。 */
+export function formatBoundLabel(status: IntegrationStatus | null, identity: string): string {
   const slot = (status?.bound_slot ?? '').trim()
   if (!slot) return ''
   const name = (status?.character?.name ?? '').trim() || '未知角色'
-  return `${name}（${shortSlotLabel(slot)}）`
+  return identity ? `${name}，${identity}` : `${name}。`
 }
 
 /** 存档档案五项（embedded 设置面板只读展示）：名字/性别/阶段/称号/等级。 */
