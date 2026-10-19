@@ -424,3 +424,30 @@ export interface ResetKnowledgeBaseResponse {
 export function resetKnowledgeBase(): Promise<ResetKnowledgeBaseResponse> {
   return request.post('/api/game/knowledge-base/reset').then(res => res.data)
 }
+
+/** 页面设置与游戏内配置小窗共用的 LLM 连接配置 */
+export interface LlmConfigResponse {
+  ok: boolean
+  configured: boolean
+  api_key: string
+  api_base: string
+  model_name: string
+  proxy_url?: string
+  updated_at: number
+}
+
+export interface LlmConfigSaveRequest {
+  api_key: string
+  api_base: string
+  model_name: string
+  proxy_url?: string
+  updated_at?: number
+}
+
+export function getLlmConfig(): Promise<LlmConfigResponse> {
+  return request.get('/api/game/llm-config').then(res => res.data)
+}
+
+export function saveLlmConfig(data: LlmConfigSaveRequest): Promise<LlmConfigResponse> {
+  return request.post('/api/game/llm-config', data).then(res => res.data)
+}

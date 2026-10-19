@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { getLlmConfig, saveLlmConfig } from '../api/game'
 
 export const Gender = {
   MALE: '男' as const,
@@ -265,6 +266,8 @@ export const usePlayerStore = defineStore('player', () => {
   const long_term_memory_enabled = ref<boolean>(false)
   /** 精确短期记忆长度档位：10=短 30=中 100=长 500=几乎无限 */
   const summarize_interval = ref<number>(30)
+  /** 配置最后保存时间（与游戏内配置小窗按时间戳合并，避免旧值覆盖新值） */
+  const llm_config_updated_at = ref<number>(0)
 
   // Getters
   // 有效档位：存档覆盖优先（embedded 绑定），无覆盖回落本地自填值
@@ -316,10 +319,7 @@ export const usePlayerStore = defineStore('player', () => {
   }
 
   // 持久化到 localStorage 或 sessionStorage
-  const saveToLocalStorage = () => {
-    hasConfigured.value = true
-    api_base.value = normalizeApiBase(api_base.value)
-
+  const persistToLocalStorage = () => {
     // 基础配置（总是保存到 localStorage）
     const persistentData = {
       gender: gender.value,
@@ -332,7 +332,8 @@ export const usePlayerStore = defineStore('player', () => {
       remember_api_key: remember_api_key.value,
       agent_enabled: agent_enabled.value,
       long_term_memory_enabled: long_term_memory_enabled.value,
-      summarize_interval: summarize_interval.value
+      summarize_interval: summarize_interval.value,
+      llm_config_updated_at: llm_config_updated_at.value
     }
     localStorage.setItem('player-settings', JSON.stringify(persistentData))
 
@@ -343,6 +344,96 @@ export const usePlayerStore = defineStore('player', () => {
     } else {
       sessionStorage.setItem('player-api-key', api_key.value)
       localStorage.removeItem('player-api-key')
+    }
+  }
+
+  /** 把终端设置页保存的配置同步到后端，供游戏内插话复用。 */
+  const pushLlmConfigToBackend = async (): Promise<boolean> => {
+    const key = api_key.value.trim()
+    if (!key) return false
+    try {
+      const remote = await saveLlmConfig({
+        api_key: key,
+        api_base: api_base.value,
+        model_name: model_name.value,
+        proxy_url: proxy_url.value,
+        updated_at: llm_config_updated_at.value || undefined
+      })
+      return remote?.configured === true
+    } catch (error) {
+      console.error('Failed to sync LLM config to backend:', error)
+      return false
+    }
+  }
+
+  const saveToLocalStorage = () => {
+    hasConfigured.value = true
+    api_base.value = normalizeApiBase(api_base.value)
+    llm_config_updated_at.value = Date.now()
+    persistToLocalStorage()
+    void pushLlmConfigToBackend()
+  }
+
+  /**
+   * 游戏内配置小窗专用：三字段写入 localStorage 并等待后端内存同步完成。
+   * 返回 false 时小窗保持打开并提示，不能假装保存成功。
+   */
+  const persistLlmConfig = async (
+    key: string,
+    base: string,
+    model: string,
+    remember: boolean
+  ): Promise<boolean> => {
+    api_key.value = key
+    api_base.value = normalizeApiBase(base)
+    model_name.value = model
+    remember_api_key.value = remember
+    hasConfigured.value = true
+    llm_config_updated_at.value = Date.now()
+    persistToLocalStorage()
+    return pushLlmConfigToBackend()
+  }
+
+  /**
+   * 启动时与后端对齐配置：后端更新（例如刚从游戏内配置小窗保存）则落到本地；
+   * 本地更新则推给后端。时间戳相同取后端，避免两端各自启动时来回覆盖。
+   */
+  const applyRemoteLlmConfig = (remote: {
+    api_key?: string
+    api_base?: string
+    model_name?: string
+    proxy_url?: string
+    updated_at?: number
+  }) => {
+    if (remote.api_key) api_key.value = remote.api_key
+    if (typeof remote.api_base === 'string') api_base.value = normalizeApiBase(remote.api_base)
+    if (typeof remote.model_name === 'string' && remote.model_name) model_name.value = remote.model_name
+    if (typeof remote.proxy_url === 'string' && remote.proxy_url) proxy_url.value = remote.proxy_url
+    hasConfigured.value = true
+    llm_config_updated_at.value = Number(remote.updated_at) || llm_config_updated_at.value
+  }
+
+  /**
+   * 启动时与后端对齐配置：后端更新（例如刚从游戏内配置小窗保存）则落到内存；
+   * 本地更新则推给后端。时间戳相同取后端，避免两端各自启动时来回覆盖。
+   *
+   * 远端有 Key 而本页没有 Key 时必须采用远端，不能因为本地时间戳较新就留空：
+   * remember_api_key=false 时 Key 只存在于 iframe 的 sessionStorage，独立配置页读不到。
+   * 这里只改内存，不把远端 Key 隐式写入本页 localStorage；持久化只发生在显式保存时。
+   */
+  const syncLlmConfigFromBackend = async () => {
+    try {
+      const remote = await getLlmConfig()
+      const remoteAt = Number(remote.updated_at) || 0
+      if (remote.configured && (remoteAt >= llm_config_updated_at.value || !api_key.value.trim())) {
+        applyRemoteLlmConfig(remote)
+        return
+      }
+      if (api_key.value.trim()) {
+        await pushLlmConfigToBackend()
+      }
+    } catch (error) {
+      console.error('Failed to sync LLM config from backend:', error)
     }
   }
 
@@ -369,6 +460,7 @@ export const usePlayerStore = defineStore('player', () => {
         summarize_interval.value = [10, 30, 100, 500].includes(Number(data.summarize_interval))
           ? Number(data.summarize_interval)
           : 30
+        llm_config_updated_at.value = Number(data.llm_config_updated_at) || 0
       } catch (error) {
         console.error('Failed to load player settings from localStorage:', error)
       }
@@ -390,12 +482,23 @@ export const usePlayerStore = defineStore('player', () => {
   // 初始化时加载
   loadFromLocalStorage()
 
+  // 游戏内配置小窗与终端 iframe 共用 localStorage：另一上下文保存后立即刷新内存配置。
+  const setupStorageSync = () => {
+    if (typeof window === 'undefined') return
+    window.addEventListener('storage', (event) => {
+      if (event.key === 'player-settings' || event.key === 'player-api-key') {
+        loadFromLocalStorage()
+      }
+    })
+  }
+
   // 监听变化并自动保存
   const setupAutoSave = () => {
     // 使用 watchEffect 来自动追踪依赖并保存
     // 这里我们手动调用 saveToLocalStorage 来持久化
   }
 
+  setupStorageSync()
   setupAutoSave()
 
   return {
@@ -412,6 +515,7 @@ export const usePlayerStore = defineStore('player', () => {
     agent_enabled,
     long_term_memory_enabled,
     summarize_interval,
+    llm_config_updated_at,
 
     // Getters
     playerIdentity,
@@ -421,6 +525,9 @@ export const usePlayerStore = defineStore('player', () => {
     applySaveIdentity,
     updateModelName,
     saveToLocalStorage,
-    loadFromLocalStorage
+    loadFromLocalStorage,
+    pushLlmConfigToBackend,
+    persistLlmConfig,
+    syncLlmConfigFromBackend
   }
 })

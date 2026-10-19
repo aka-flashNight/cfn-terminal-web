@@ -475,7 +475,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { usePlayerStore, Gender, Progress, inferApiBase, PROGRESS_TO_IDENTITY, COMMON_PLATFORMS, getPlatformByValue, inferPlatformFromApiBase } from '../stores/player'
 import { formatSaveCard, type IntegrationStatus } from '../utils/integration'
 import { resetKnowledgeBase } from '../api/game'
@@ -656,6 +656,21 @@ onMounted(() => {
   isFirstLoad.value = !playerStore.hasConfigured
   initPlatformSelection()
 })
+
+// 每次打开设置都先与后端对齐：游戏内配置小窗保存的 Key/Base/模型要在这里可见
+watch(
+  () => props.modelValue,
+  async (open) => {
+    if (!open) return
+    await playerStore.syncLlmConfigFromBackend()
+    formData.value.api_key = playerStore.api_key
+    formData.value.api_base = playerStore.api_base
+    formData.value.model_name = playerStore.model_name
+    formData.value.proxy_url = playerStore.proxy_url
+    formData.value.remember_api_key = playerStore.remember_api_key
+    initPlatformSelection()
+  }
+)
 </script>
 
 <style scoped>
