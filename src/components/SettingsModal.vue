@@ -327,6 +327,30 @@
               </div>
             </div>
 
+            <!-- 自动启动终端（仅游戏内显示；勾选状态由宿主本地保存） -->
+            <div v-if="embedded">
+              <div class="block text-sm font-medium mb-2 text-[#00ff41] font-mono">
+                &gt; 自动启动终端
+              </div>
+              <div class="space-y-2">
+                <label class="flex items-center cursor-pointer group">
+                  <input
+                    id="settings-rag-terminal-autostart"
+                    v-model="formData.rag_terminal_auto_start"
+                    type="checkbox"
+                    class="mr-2 accent-[#00ff41] w-4 h-4"
+                    @change="notifyTerminalAutoStart"
+                  />
+                  <span class="text-gray-400 group-hover:text-[#00ff41] transition-colors text-sm">
+                    启动游戏时自动启动终端
+                  </span>
+                </label>
+                <p class="text-[#555555] text-xs font-mono leading-relaxed">
+                  [提示] 勾选后，每次打开游戏都会自动在后台启动通讯终端，打开面板或插话时无需等待启动。<span class="text-[#ffaa00]">终端会常驻占用内存。</span>关闭时保持现状：只有打开终端或发起插话时才启动。
+                </p>
+              </div>
+            </div>
+
             <!-- 跨对话长期记忆（仅非游戏打开时显示；游戏内嵌恒定启用，后端不受理关闭） -->
             <div v-if="!embedded">
               <div class="block text-sm font-medium mb-2 text-[#00ff41] font-mono">
@@ -517,8 +541,31 @@ const formData = ref({
   remember_api_key: playerStore.remember_api_key,
   agent_enabled: playerStore.agent_enabled,
   long_term_memory_enabled: playerStore.long_term_memory_enabled,
-  summarize_interval: playerStore.summarize_interval
+  summarize_interval: playerStore.summarize_interval,
+  rag_terminal_auto_start: readTerminalAutoStart()
 })
+
+/** 自动启动初值由宿主随 iframe 地址下发；独立打开时参数缺失，按关闭处理。 */
+function readTerminalAutoStart(): boolean {
+  try {
+    return new URLSearchParams(window.location.search).get('terminalAutoStart') === '1'
+  } catch {
+    return false
+  }
+}
+
+/** 勾选即时生效：上报父页面转给宿主落盘，不依赖设置弹窗的保存按钮。 */
+const notifyTerminalAutoStart = () => {
+  if (!props.embedded) return
+  try {
+    window.parent.postMessage(
+      { type: 'ragchat-autostart', enabled: formData.value.rag_terminal_auto_start },
+      '*'
+    )
+  } catch {
+    /* 非游戏内没有可转发的父页面 */
+  }
+}
 
 const summarizeIntervalIndex = computed(() => {
   const idx = SUMMARY_INTERVAL_OPTIONS.indexOf(formData.value.summarize_interval as 10 | 30 | 100 | 500)

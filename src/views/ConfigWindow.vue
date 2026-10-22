@@ -87,6 +87,16 @@
           : '[安全提示] API Key 仅在本次会话有效，关闭终端后将被清除。' }}
       </p>
 
+      <template v-if="embedded">
+        <label class="config-remember">
+          <input v-model="form.terminal_auto_start" type="checkbox" @change="notifyAutoStart" />
+          启动游戏时自动启动终端
+        </label>
+        <p class="config-tip">
+          [提示] 勾选后，每次打开游戏都会自动在后台启动通讯终端；关闭时仅在你打开终端或插话时启动。
+        </p>
+      </template>
+
       <p v-if="error" class="config-error">{{ error }}</p>
 
       <div class="config-actions">
@@ -120,6 +130,8 @@ const playerStore = usePlayerStore()
 const params = new URLSearchParams(window.location.search)
 const isPopup = params.get('popup') === '1'
 const mode = params.get('mode') === 'auto' ? 'auto' : 'edit'
+/** 只有游戏内（宿主打开）的配置小窗才显示「自动启动终端」。 */
+const embedded = params.get('embedded') === '1'
 
 const ready = ref(false)
 const saving = ref(false)
@@ -131,7 +143,9 @@ const form = reactive({
   model_name: playerStore.model_name,
   api_base: playerStore.api_base,
   api_key: playerStore.api_key,
-  remember: playerStore.remember_api_key
+  remember: playerStore.remember_api_key,
+  // 初值由宿主随地址下发；勾选即时上报宿主，不随模型配置一起保存。
+  terminal_auto_start: params.get('terminalAutoStart') === '1'
 })
 
 const postHost = (message: unknown) => {
@@ -142,6 +156,11 @@ const postHost = (message: unknown) => {
   } catch {
     /* 独立浏览器打开时没有宿主桥，忽略 */
   }
+}
+
+/** 勾选即时上报宿主；不经保存按钮，模型配置不完整也能改这项。 */
+const notifyAutoStart = () => {
+  postHost({ type: 'rag-terminal-autostart', enabled: form.terminal_auto_start })
 }
 
 const syncFormFromStore = () => {
