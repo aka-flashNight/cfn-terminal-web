@@ -181,7 +181,7 @@
                 </button>
               </div>
               <p class="text-[#555555] text-xs font-mono mt-2">
-                [建议] 推荐使用 deepseek-v4-flash-vision-exp（支持图像识别，NPC 立绘可参与对话）。
+                [建议]推荐使用glm-5.3-flash(效果好，有试用)或deepseek-flash(回复速度快)
               </p>
             </div>
 
