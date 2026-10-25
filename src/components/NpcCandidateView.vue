@@ -53,7 +53,7 @@
       </div>
 
       <!-- 验证完毕，但列表为空 -->
-      <div v-else-if="validNpcCandidates.length === 0" class="text-[#555555] text-sm italic font-mono py-8">
+      <div v-else-if="visibleNpcCandidates.length === 0" class="text-[#555555] text-sm italic font-mono py-8">
         [WARNING] 暂无可用通讯人员
       </div>
 
@@ -64,20 +64,9 @@
           :key="group.factionLabel"
           class="space-y-4"
         >
-          <!-- 阵营标题：无阵营时不显示或显示为「未设置」 -->
-          <h3
-            v-if="group.factionLabel !== FACTION_NONE"
-            class="text-xs font-bold text-[#00ffff] uppercase tracking-wider font-mono flex items-center gap-2"
-          >
+          <h3 class="text-xs font-bold text-[#00ffff] uppercase tracking-wider font-mono flex items-center gap-2">
             <span class="w-1 h-3 bg-[#00ffff]"></span>
             {{ getFactionDisplayLabel(group.factionLabel) }}
-          </h3>
-          <h3
-            v-else
-            class="text-xs font-bold text-[#666666] uppercase tracking-wider font-mono flex items-center gap-2"
-          >
-            <span class="w-1 h-3 bg-[#666666]"></span>
-            未设置
           </h3>
           <!-- 头像网格 150px -->
           <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-4">
@@ -116,17 +105,14 @@ const FACTION_A = 'A兵团'
 const FACTION_ROCK = '摇滚公园'
 const FACTION_EGG = '彩蛋'
 const FACTION_MEMBER = '成员'
-const FACTION_NONE = '无'
 
-/** 阵营排序权重：越小越靠前；彩蛋、成员放最后 */
+/** 阵营排序权重：越小越靠前；??? 放最后 */
 function getFactionSortKey(label: string): number {
   if (label === FACTION_ELDER) return 0
   if (label === FACTION_A) return 1
   if (label === FACTION_ROCK) return 2
   if (label === FACTION_EGG) return 998
-  if (label === FACTION_MEMBER) return 999
-  if (label === FACTION_NONE) return 1000
-  return 3 // 其他阵营排在 A兵团 之后、彩蛋/成员 之前，同权重按名称稳定排序
+  return 3 // 其他阵营排在 A兵团 之后、??? 之前，同权重按名称稳定排序
 }
 
 /** 阵营显示名映射：支持把后端原始值换成更友好的文案 */
@@ -155,13 +141,16 @@ defineEmits<{
   (e: 'open-new-session', npcName: string): void
 }>()
 
-/** 按阵营分组并排序：A兵团元老 → A兵团 → 其他 → 彩蛋 → 成员 → 无 */
+/** 本页不展示「成员」阵营的 NPC，数据侧口径不变 */
+const visibleNpcCandidates = computed(() =>
+  props.validNpcCandidates.filter((item) => item.faction !== FACTION_MEMBER)
+)
+
+/** 按阵营分组并排序：A兵团元老 → A兵团 → 其他 → ???；无阵营并入 ??? */
 const npcGroups = computed(() => {
-  const raw = props.validNpcCandidates
   const map = new Map<string, NpcCandidateItem[]>()
-  const norm = (f: string | null) => (f === null || f === '') ? FACTION_NONE : f
-  for (const item of raw) {
-    const label = norm(item.faction)
+  for (const item of visibleNpcCandidates.value) {
+    const label = item.faction || FACTION_EGG
     if (!map.has(label)) map.set(label, [])
     map.get(label)!.push(item)
   }
