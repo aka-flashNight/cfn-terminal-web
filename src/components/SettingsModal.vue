@@ -167,7 +167,7 @@
                 <input
                   v-model="formData.model_name"
                   type="text"
-                  placeholder="例如：deepseek-v4-flash-vision-exp, kimi-k2.5"
+                  placeholder="例如：deepseek-flash, kimi-k2.5"
                   @blur="handleModelNameBlur"
                   class="w-full bg-[#111111] text-[#00ff41] border border-[#333333] rounded px-3 py-2 pr-10 focus:outline-none focus:border-[#00ff41] focus:shadow-[0_0_10px_rgba(0,255,65,0.2)] transition-all placeholder-[#444444]"
                 />

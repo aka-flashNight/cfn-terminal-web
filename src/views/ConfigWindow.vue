@@ -21,7 +21,7 @@
           v-model="form.model_name"
           type="text"
           class="config-input"
-          placeholder="例如：deepseek-v4-flash-vision-exp, kimi-k2.5"
+          placeholder="例如：deepseek-flash, kimi-k2.5"
           autocomplete="off"
           spellcheck="false"
           @blur="handleModelBlur"
